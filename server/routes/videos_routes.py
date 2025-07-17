@@ -15,7 +15,7 @@ cloudinary.config(
     secure=True
 )
 
-# Enable CORS for these routes
+# Enable CORS for these route
 CORS(cloudinary_routes)
 
 @cloudinary_routes.route('/get_gif', methods=['GET'])
