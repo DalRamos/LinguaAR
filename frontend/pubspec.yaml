@@ -63,6 +63,7 @@ dependencies:
   showcaseview: ^4.0.1
   font_awesome_flutter: ^10.8.0
   flutter_vector_icons: ^2.0.0
+  model_viewer_plus: ^1.9.0
   
 
 

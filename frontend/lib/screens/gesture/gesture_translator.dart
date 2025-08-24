@@ -1,5 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:lingua_arv1/screens/gesture/text_to_3dAnimation.dart';
 import 'package:lingua_arv1/screens/text_to_speech/gesture_voice_translator.dart';
 import 'package:lingua_arv1/screens/gesture/gesture_word_tab.dart';
 
@@ -51,7 +52,7 @@ class _GestureTranslatorState extends State<GestureTranslator>
           controller: _tabController,
           tabs: [
             Tab(text: 'Word'),
-            Tab(text: 'Voice'),
+            Tab(text: '3D Text'),
           ],
         ),
       ),
@@ -69,8 +70,7 @@ class _GestureTranslatorState extends State<GestureTranslator>
                   cameras: snapshot.data!,
                   isActive: _currentTabIndex == 0,
                 ),
-                GestureVoiceTab(
-                  cameras: snapshot.data!,
+                TextTo3DTab(
                   isActive: _currentTabIndex == 1,
                 ),
               ],
