@@ -7,7 +7,7 @@ from flask_cors import CORS
 from routes.otp import create_otp_routes
 from routes.touch import create_touch_routes
 from routes.favotites import create_favorites_routes
-
+from routes.lesson_flow_routes import create_lesson_flow_routes
 
 def create_app():
     app = Flask(__name__)
