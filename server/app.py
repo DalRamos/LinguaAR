@@ -23,6 +23,7 @@ def create_app():
     create_otp_routes(app)
     create_touch_routes(app)
     create_favorites_routes(app)
+    create_lesson_flow_routes(app)
 
 
 
