@@ -8,6 +8,7 @@ import 'package:lingua_arv1/bloc/Gif/gif_event.dart';
 import 'package:lingua_arv1/bloc/Gif/gif_state.dart';
 import 'package:lingua_arv1/repositories/Config.dart';
 import 'package:lingua_arv1/validators/token.dart';
+import 'package:shimmer/shimmer.dart';
 
 class RelationshipsPage extends StatefulWidget {
   @override
@@ -17,8 +18,9 @@ class RelationshipsPage extends StatefulWidget {
 class _RelationshipsPageState extends State<RelationshipsPage> {
   final List<String> phrases = relationshipMappings.keys.toList();
   String? userId;
-  Map<String, bool> favorites = {}; // To track favorite phrases
+  Map<String, bool> favorites = {};
   String basicurl = BasicUrl.baseURL;
+  bool _isLoadingFavorites = true;
 
   late ScrollController _scrollController;
   Color appBarColor = Color(0xFFFEFFFE);
@@ -29,13 +31,10 @@ class _RelationshipsPageState extends State<RelationshipsPage> {
     _scrollController = ScrollController();
     _scrollController.addListener(() {
       bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
       setState(() {
         appBarColor = _scrollController.offset > 50
-            ? const Color(0xFF4A90E2) // Scrolled color
-            : (isDarkMode
-                ? Color(0xFF273236)
-                : const Color(0xFFFEFFFE)); // ✅ Black in dark mode
+            ? const Color(0xFF4A90E2)
+            : (isDarkMode ? Color(0xFF273236) : const Color(0xFFFEFFFE));
       });
     });
     _loadUserId();
@@ -47,20 +46,16 @@ class _RelationshipsPageState extends State<RelationshipsPage> {
     super.dispose();
   }
 
-  /// Load the user ID and fetch favorites
   Future<void> _loadUserId() async {
     userId = await TokenService.getUserId();
-    if (userId != null) {
-      print("User ID Loaded: $userId"); // Debugging
-      _fetchFavorites();
-    } else {
-      print("Error: User ID is null");
-    }
+    if (userId != null) await _fetchFavorites();
+
+    await Future.delayed(const Duration(milliseconds: 1500));
+    if (mounted) setState(() => _isLoadingFavorites = false);
   }
 
-  /// Fetch user's favorite phrases from API
   Future<void> _fetchFavorites() async {
-    if (userId == null) return; // Ensure userId is not null
+    if (userId == null) return;
     try {
       final response =
           await http.get(Uri.parse('$basicurl/favorites/favorites/$userId'));
@@ -70,28 +65,18 @@ class _RelationshipsPageState extends State<RelationshipsPage> {
           favorites = {for (var fav in data) fav['item']: true};
         });
       } else {
-        print("Error fetching favorites: ${response.body}");
-        setState(() {
-          favorites = {};
-        });
+        setState(() => favorites = {});
       }
     } catch (e) {
       print("Exception fetching favorites: $e");
     }
   }
 
-  /// Toggle favorite status for a phrase
   Future<void> _toggleFavorite(String phrase) async {
-    if (userId == null) {
-      print("❌ Error: User ID is null, cannot toggle favorite.");
-      return;
-    }
+    if (userId == null) return;
 
     String mappedValue = relationshipMappings[phrase] ?? "";
-    if (mappedValue.isEmpty) {
-      print("❌ Error: No mapped value found for phrase: $phrase");
-      return;
-    }
+    if (mappedValue.isEmpty) return;
 
     bool isFavorite = favorites[phrase] ?? false;
     String url = '$basicurl/favorites/favorites';
@@ -104,72 +89,76 @@ class _RelationshipsPageState extends State<RelationshipsPage> {
 
     try {
       if (isFavorite) {
-        // Remove from favorites
         final response = await http.delete(
           Uri.parse('$url/$userId/${Uri.encodeComponent(phrase)}'),
           headers: headers,
         );
-
-        if (response.statusCode == 200) {
-          setState(() {
-            favorites[phrase] = false;
-          });
-          print("✅ Removed from favorites: $phrase ($mappedValue)");
-        } else {
-          print("❌ Error removing favorite: ${response.body}");
-        }
+        if (response.statusCode == 200)
+          setState(() => favorites[phrase] = false);
       } else {
-        // Add to favorites with mapped value
         final response = await http.post(
           Uri.parse(url),
           headers: headers,
           body: jsonEncode(body),
         );
-
-        if (response.statusCode == 201) {
-          setState(() {
-            favorites[phrase] = true;
-          });
-          print("✅ Added to favorites: $phrase ($mappedValue)");
-        } else {
-          print("❌ Error adding favorite: ${response.body}");
-        }
+        if (response.statusCode == 201)
+          setState(() => favorites[phrase] = true);
       }
     } catch (e) {
-      print("❌ Exception in _toggleFavorite: $e");
+      print("Exception in _toggleFavorite: $e");
     }
   }
 
   void _showGifPopup(BuildContext context, String phrase, String gifUrl) {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                phrase,
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 10),
-              Container(
-                width: 500,
-                height: 410,
-                decoration:
-                    BoxDecoration(border: Border.all(color: Colors.grey)),
-                child: Image.network(gifUrl, fit: BoxFit.cover),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: Text('Back'),
+      builder: (_) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(phrase,
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            SizedBox(height: 10),
+            Container(
+              width: 500,
+              height: 410,
+              decoration: BoxDecoration(border: Border.all(color: Colors.grey)),
+              child: Image.network(gifUrl, fit: BoxFit.cover),
             ),
           ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Back'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShimmerList(bool isDarkMode) {
+    Color baseColor = isDarkMode ? Colors.grey.shade800 : Colors.grey.shade300;
+    Color highlightColor =
+        isDarkMode ? Colors.grey.shade700 : Colors.grey.shade100;
+
+    return ListView.builder(
+      padding: EdgeInsets.all(16),
+      itemCount: 8,
+      itemBuilder: (context, index) {
+        return Shimmer.fromColors(
+          baseColor: baseColor,
+          highlightColor: highlightColor,
+          child: Card(
+            elevation: 5,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              title: Container(height: 16, width: 120, color: Colors.white),
+              trailing: Icon(Icons.star, color: Colors.white),
+            ),
+          ),
         );
       },
     );
@@ -181,7 +170,7 @@ class _RelationshipsPageState extends State<RelationshipsPage> {
     bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     if (_scrollController.hasClients && _scrollController.offset > 50) {
-      appBarColor = const Color(0xFF4A90E2); // ✅ Keeps blue if already scrolled
+      appBarColor = const Color(0xFF4A90E2);
     } else {
       appBarColor = isDarkMode
           ? const Color.fromARGB(255, 29, 29, 29)
@@ -189,18 +178,16 @@ class _RelationshipsPageState extends State<RelationshipsPage> {
     }
 
     return BlocProvider(
-      create: (context) => GifBloc(),
+      create: (_) => GifBloc(),
       child: Scaffold(
-        backgroundColor: Theme.of(context).brightness == Brightness.dark
-            ? Color(0xFF273236)
-            : const Color(0xFFFEFFFE),
+        backgroundColor:
+            isDarkMode ? Color(0xFF273236) : const Color(0xFFFEFFFE),
         body: NestedScrollView(
           controller: _scrollController,
           headerSliverBuilder: (context, innerBoxIsScrolled) {
             return [
               SliverAppBar(
                 pinned: true,
-                // automaticallyImplyLeading: false,
                 backgroundColor: appBarColor,
                 elevation: 4,
                 expandedHeight: kToolbarHeight,
@@ -209,63 +196,60 @@ class _RelationshipsPageState extends State<RelationshipsPage> {
                   title: Text(
                     'Relationships',
                     style: TextStyle(
-                      fontSize: screenWidth * 0.045,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white // ✅ Always white in dark mode
-                          : (appBarColor == const Color(0xFFFEFFFE)
-                              ? Colors.black
-                              : Colors.white),
-                    ),
+                        fontSize: screenWidth * 0.045,
+                        color: isDarkMode
+                            ? Colors.white
+                            : (appBarColor == const Color(0xFFFEFFFE)
+                                ? Colors.black
+                                : Colors.white)),
                   ),
                 ),
               ),
             ];
           },
-          body: ListView.builder(
-            padding: EdgeInsets.all(16),
-            itemCount: phrases.length,
-            itemBuilder: (context, index) {
-              String phrase = phrases[index];
-              bool isFavorite = favorites[phrase] ?? false;
-              return Card(
-                elevation: 5,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                child: ListTile(
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  title: Text(phrase,
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  trailing: IconButton(
-                    icon: Icon(
-                      isFavorite ? Icons.star : Icons.star_border,
-                      color: isFavorite ? Colors.yellow : Colors.grey,
-                    ),
-                    onPressed: () => _toggleFavorite(phrase),
-                  ),
-                  onTap: () {
-                    String publicId = relationshipMappings[phrase] ?? '';
-                    if (publicId.isNotEmpty) {
-                      context
-                          .read<GifBloc>()
-                          .add(FetchGif(phrase: phrase, publicId: publicId));
-                    }
+          body: _isLoadingFavorites
+              ? _buildShimmerList(isDarkMode)
+              : ListView.builder(
+                  padding: EdgeInsets.all(16),
+                  itemCount: phrases.length,
+                  itemBuilder: (context, index) {
+                    String phrase = phrases[index];
+                    bool isFavorite = favorites[phrase] ?? false;
+                    return Card(
+                      elevation: 5,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      child: ListTile(
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        title: Text(phrase,
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        trailing: IconButton(
+                          icon: Icon(
+                            isFavorite ? Icons.star : Icons.star_border,
+                            color: isFavorite ? Colors.yellow : Colors.grey,
+                          ),
+                          onPressed: () => _toggleFavorite(phrase),
+                        ),
+                        onTap: () {
+                          String publicId = relationshipMappings[phrase] ?? '';
+                          if (publicId.isNotEmpty) {
+                            context.read<GifBloc>().add(
+                                FetchGif(phrase: phrase, publicId: publicId));
+                          }
+                        },
+                      ),
+                    );
                   },
                 ),
-              );
-            },
-          ),
         ),
         bottomSheet: BlocBuilder<GifBloc, GifState>(
           builder: (context, state) {
-            if (state is GifLoading) {
+            if (state is GifLoading)
               return Center(child: CircularProgressIndicator());
-            }
             if (state is GifLoaded) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _showGifPopup(context, state.phrase, state.gifUrl);
-
-                // Reset Bloc state to prevent showing the popup again
                 context.read<GifBloc>().add(ResetGifState());
               });
             }

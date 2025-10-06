@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shimmer/shimmer.dart';
 import 'package:lingua_arv1/Widgets/fsl_lesson_section.dart';
 import 'package:lingua_arv1/screens/fsl_Quiz/lesson_flow_page.dart';
-
 
 void main() {
   runApp(MaterialApp(
@@ -9,6 +9,7 @@ void main() {
     debugShowCheckedModeBanner: false,
   ));
 }
+
 class HomePage extends StatefulWidget {
   @override
   State<HomePage> createState() => _HomePageState();
@@ -16,6 +17,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   static const String _trackKey = 'fsl_translate_track';
+
+  bool _isLoading = true;
 
   final List<Map<String, dynamic>> topics = const [
     {
@@ -51,23 +54,59 @@ class _HomePageState extends State<HomePage> {
     },
     {
       'title': 'Interactive Learning and Emergency',
-      'description': 'Engage in learning activities and handle urgent situations.',
+      'description':
+          'Engage in learning activities and handle urgent situations.',
       'page': LessonFlowPage(category: "Emergency"),
     },
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Simulate loading
+    Future.delayed(const Duration(seconds: 2), () {
+      setState(() {
+        _isLoading = false;
+      });
+    });
+  }
+
+  Widget _buildShimmerList() {
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: 6,
+      itemBuilder: (context, index) {
+        return Shimmer.fromColors(
+          baseColor: Colors.grey[300]!,
+          highlightColor: Colors.grey[100]!,
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            height: 80,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF273236) : const Color(0xFFFEFFFE),
+      backgroundColor:
+          isDark ? const Color(0xFF273236) : const Color(0xFFFEFFFE),
       body: SafeArea(
-        child: FslLessonsSection(
-          trackKey: _trackKey,
-          topics: topics,
-          progressColor: const Color(0xFF4A90E2),
-        ),
+        child: _isLoading
+            ? _buildShimmerList()
+            : FslLessonsSection(
+                trackKey: _trackKey,
+                topics: topics,
+                progressColor: const Color(0xFF4A90E2),
+              ),
       ),
     );
   }

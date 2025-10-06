@@ -89,7 +89,12 @@ def login():
         'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
     }, '79e026c5eaee509133e45e5004d457b0500cbbdc62c50b5f539497fdbd14e0d3', algorithm='HS256')
 
-    return jsonify({'message': 'Login successful', 'token': token}), 200
+    return jsonify({
+    'message': 'Login successful',
+    'token': token,
+    'email': email,
+    'disability': disability
+}), 200
 # Reset Password Route
 @auth_bp.route('/reset-password', methods=['POST'])
 def reset_password():
