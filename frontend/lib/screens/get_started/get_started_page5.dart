@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:lingua_arv1/main.dart';
 import 'package:lingua_arv1/screens/home/home_screen.dart';
 
 class GetStartedPage5 extends StatelessWidget {
@@ -12,7 +11,6 @@ class GetStartedPage5 extends StatelessWidget {
     return Scaffold(
       backgroundColor: Theme.of(context).brightness == Brightness.dark
           ? Color(0xFF191E20)
-          // White button in dark mode
           : Color(0xFFFEFEFF),
       body: Center(
         child: SingleChildScrollView(
@@ -27,6 +25,13 @@ class GetStartedPage5 extends StatelessWidget {
                   width: isLargeScreen ? 400 : screenWidth * 0.6,
                   height: isLargeScreen ? 300 : screenHeight * 0.3,
                   fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Icon(
+                      Icons.check_circle,
+                      size: isLargeScreen ? 200 : screenWidth * 0.4,
+                      color: Color(0xFF4A90E2),
+                    );
+                  },
                 ),
                 SizedBox(height: isLargeScreen ? 30 : screenHeight * 0.03),
                 Text(
@@ -35,7 +40,7 @@ class GetStartedPage5 extends StatelessWidget {
                     fontSize: isLargeScreen ? 32 : screenWidth * 0.07,
                     fontWeight: FontWeight.bold,
                     color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white // Dark mode color
+                        ? Colors.white
                         : Color(0xFF273236),
                   ),
                 ),
@@ -46,7 +51,7 @@ class GetStartedPage5 extends StatelessWidget {
                   style: TextStyle(
                     fontSize: isLargeScreen ? 20 : screenWidth * 0.045,
                     color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white // Dark mode color
+                        ? Colors.white
                         : Colors.black54,
                   ),
                 ),
@@ -55,11 +60,11 @@ class GetStartedPage5 extends StatelessWidget {
                   alignment: Alignment.bottomCenter,
                   child: ElevatedButton(
                     onPressed: () {
-                      Navigator.push(
+                      // Navigate to home screen
+                      Navigator.pushAndRemoveUntil(
                         context,
-                        MaterialPageRoute(
-                          builder: (context) => HomeScreen(),
-                        ),
+                        MaterialPageRoute(builder: (context) => HomeScreen()),
+                        (route) => false,
                       );
                     },
                     style: ElevatedButton.styleFrom(

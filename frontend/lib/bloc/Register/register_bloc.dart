@@ -10,13 +10,12 @@ class RegisterBloc extends Bloc<RegisterEvent, RegisterState> {
   RegisterBloc(this._registerRepository) : super(RegisterInitial()) {
     on<RegisterButtonPressed>((event, emit) async {
       emit(RegisterLoading());
-      print("Registering user with email: ${event.email}, disability: ${event.disability}");
+      print("Registering user with email: ${event.email}");
 
       try {
         final authentication = await _registerRepository.register(
           event.email,
           event.password,
-          event.disability, // Pass the disability parameter
         );
 
         print("Registration Successful: Message = ${authentication.message}");

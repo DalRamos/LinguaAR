@@ -8,9 +8,9 @@ class RegisterRepositoryImpl implements RegisterRepository {
   String url = BasicUrl.baseURL;
 
   @override
-  Future<Authentication> register(String email, String password, String? disability) async {
+  Future<Authentication> register(String email, String password) async {
     print("Sending registration request to: $url");
-    print("Request payload: {email: $email, password: $password, disability: $disability}");
+    print("Request payload: {email: $email, password: $password}");
 
     final response = await http.post(
       Uri.parse('$url/auth/register'),
@@ -18,7 +18,6 @@ class RegisterRepositoryImpl implements RegisterRepository {
       body: jsonEncode({
         'email': email,
         'password': password,
-        'disability': disability, // Will be null if not provided
       }),
     );
 
@@ -32,7 +31,6 @@ class RegisterRepositoryImpl implements RegisterRepository {
         'message': responseData['message'],
         'token': '',
         'email': email,
-        'disability': disability, // Will be null if not provided
       });
     } else {
       // Handle errors

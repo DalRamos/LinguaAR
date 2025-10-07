@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:lingua_arv1/Widgets/fsl_lesson_section.dart';
 import 'package:lingua_arv1/screens/fsl_Quiz/lesson_flow_page.dart';
+import 'package:shimmer/shimmer.dart';
 
 void main() {
   runApp(MaterialApp(
@@ -17,7 +18,6 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   static const String _trackKey = 'fsl_translate_track';
-
   bool _isLoading = true;
 
   final List<Map<String, dynamic>> topics = const [

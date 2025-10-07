@@ -71,9 +71,10 @@ class _LinguaTabsState extends State<LinguaTabs>
                   cameras: snapshot.data!,
                   isActive: _currentTabIndex == 1,
                 ),
-                TextTo3DTab(isActive: _currentTabIndex == 0,
+                TextTo3DTab(
+                  cameras: snapshot.data!, // ADDED THIS LINE
+                  isActive: _currentTabIndex == 0,
                 ),
-                
               ],
             );
           }

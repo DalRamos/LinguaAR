@@ -39,12 +39,10 @@ def register():
     data = request.get_json()
     email = data.get('email')
     password = data.get('password')
-    disability = data.get('disability')  # Remove default value here
 
     # Validate email and password
     if not email or not password:
         return jsonify({'message': 'Email and password are required'}), 400
-
 
     # Check if the email already exists in the database
     if users_collection.find_one({'email': email}):
@@ -54,13 +52,13 @@ def register():
     if not is_valid_password(password):
         return jsonify({'message': 'Password must contain at least 1 uppercase letter, 1 number, 1 special character, and be 8-12 characters long'}), 400
 
-
-    # Hash the password and save the user with 
+    # Hash the password and save the user
     hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
     users_collection.insert_one({
         'email': email, 
         'password': hashed_password,
-        'disability': disability  # This will be None if not provided
+        'disability': None,  # Set to None initially
+        'has_set_disability': False  # Mark as first-time user
     })
     return jsonify({'message': 'User registered successfully'}), 201
 

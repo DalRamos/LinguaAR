@@ -1,3 +1,4 @@
+// token.dart - Keep only one version
 import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,7 +14,7 @@ class TokenService {
     await prefs.setString(_tokenKey, token);
 
     Map<String, dynamic> decodedToken = JwtDecoder.decode(token);
-    print("Decoded Token: $decodedToken"); // Debugging
+    print("Decoded Token: $decodedToken");
 
     String? userId = decodedToken['_id'];
     String? email = decodedToken['email'];
@@ -55,14 +56,17 @@ class TokenService {
     return prefs.getString(disabilityKey);
   }
 
-static Future<void> saveDisability(String? disability) async {
-  final prefs = await SharedPreferences.getInstance();
-  if (disability != null) {
-    await prefs.setString(disabilityKey, disability);
-  } else {
-    await prefs.remove(disabilityKey);
+  /// Save disability locally - KEEP ONLY THIS ONE
+  static Future<void> saveDisability(String? disability) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (disability != null) {
+      await prefs.setString(disabilityKey, disability);
+      print("Disability saved locally: $disability");
+    } else {
+      await prefs.remove(disabilityKey);
+      print("Disability removed locally");
+    }
   }
-}
 
   /// Logout - Clear all stored user data
   static Future<void> logout() async {

@@ -197,10 +197,27 @@ List<String> findMatchingModels(String input) {
   final normalizedInput = input.toUpperCase().trim();
   final List<String> result = [];
   
-  // First check for multi-word phrases (longest first)
+  // All multi-word phrases from the letterModels map
   final multiWordPhrases = [
-    'MGA ITO', 'MGA IYAN', 'SA KANILA', 'SILID ARALAN', 'BLACK SAPATOS'
+    'MGA ITO',
+    'MGA IYAN',
+    'SA KANILA',
+    'AKINGSARILI',
+    'BLACK SAPATOS',
+    'SILID ARALAN',
+    'MAHAL KITA',
+    'VALENTINES DAY',
+    'VALENTINES BOOK',
+    'VALENTINES CARD',
+    'ANAK NA BABAE',
+    'ANAK NA LALAKI',
+    'MGA BATA',
+    'TULUNGAN MO SILA',
+    'MENTAL HEALTH',
   ];
+  
+  // Sort by length (longest first) to ensure we match the longest phrases first
+  multiWordPhrases.sort((a, b) => b.length.compareTo(a.length));
   
   String remainingInput = normalizedInput;
   for (final phrase in multiWordPhrases) {
@@ -214,8 +231,20 @@ List<String> findMatchingModels(String input) {
   // Then check for individual words in the remaining input
   final words = remainingInput.split(' ');
   for (final word in words) {
-    if (word.isNotEmpty && letterModels.containsKey(word)) {
-      result.add(word);
+    if (word.isNotEmpty) {
+      // First, try to find the complete word
+      if (letterModels.containsKey(word)) {
+        result.add(word);
+      } 
+      // If the complete word is not found, break it down into individual letters
+      else {
+        for (int i = 0; i < word.length; i++) {
+          final letter = word[i];
+          if (letterModels.containsKey(letter)) {
+            result.add(letter);
+          }
+        }
+      }
     }
   }
   

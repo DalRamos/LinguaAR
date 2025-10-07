@@ -21,6 +21,7 @@ class _SignUpFormState extends State<SignUpForm> {
 
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  
 
   @override
   void dispose() {

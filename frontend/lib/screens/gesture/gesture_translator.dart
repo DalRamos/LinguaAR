@@ -2,7 +2,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lingua_arv1/screens/text_to_speech/gesture_voice_translator.dart';
-import 'package:lingua_arv1/screens/text_to_speech/text_to_speech.dart';
+import 'package:lingua_arv1/screens/gesture/text_to_3dAnimation.dart';
 
 class GestureTranslator extends StatefulWidget {
   @override
@@ -38,7 +38,6 @@ class _GestureTranslatorState extends State<GestureTranslator>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    
     SystemChrome.setSystemUIOverlayStyle(
       isDark
           ? SystemUiOverlayStyle.light
@@ -78,7 +77,10 @@ class _GestureTranslatorState extends State<GestureTranslator>
                   cameras: cameras,
                   isActive: _currentTabIndex == 0,
                 ),
-                TextToSpeech(),
+                TextTo3DTab(
+                  cameras: cameras,
+                  isActive: _currentTabIndex == 1,
+                ),
               ],
             );
           }

@@ -6,8 +6,12 @@ import 'package:lingua_arv1/bloc/Login/login_state.dart';
 import 'package:lingua_arv1/screens/authentication/sign_up/signup_page.dart';
 import 'package:lingua_arv1/screens/forgot_password/forgot_password_sheet.dart';
 import 'package:lingua_arv1/repositories/login_repositories/login_repository_impl.dart';
+import 'package:lingua_arv1/screens/get_started/disability_setup_page.dart';
 import 'package:lingua_arv1/screens/get_started/get_started_page2.dart';
+import 'package:lingua_arv1/screens/home/home_screen.dart';
 import 'package:lingua_arv1/validators/token.dart';
+import 'package:lingua_arv1/bloc/Disability/disability_bloc.dart';
+import 'package:lingua_arv1/repositories/disability_repositories/disability_repository_impl.dart';
 
 class LoginPage extends StatefulWidget {
   @override
@@ -20,6 +24,40 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
   String? emailError;
   String? passwordError;
+
+  void _navigateBasedOnFirstTimeStatus(BuildContext context) async {
+    try {
+      final token = await TokenService.getToken();
+      if (token != null) {
+        // Check if it's user's first time login
+        final isFirstTime =
+            await DisabilityRepositoryImpl().checkFirstTime(token);
+
+        if (isFirstTime) {
+          print("First time user - navigating to disability setup");
+          // Navigate to disability setup page
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => DisabilitySetupPage()),
+          );
+        } else {
+          print("Returning user - navigating directly to get started");
+          // Navigate directly to get started page
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => GetStartedPage2()),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error checking first time status: $e');
+      // If there's an error, proceed to get started page
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => GetStartedPage2()),
+      );
+    }
+  }
 
   void _showSuccessDialog(BuildContext context) {
     showDialog(
@@ -35,7 +73,6 @@ class _LoginPageState extends State<LoginPage> {
             decoration: BoxDecoration(
                 color: Theme.of(context).brightness == Brightness.dark
                     ? Color(0xFF273236)
-                    // Dark mode color
                     : Colors.white,
                 borderRadius: BorderRadius.circular(16)),
             child: Column(
@@ -48,7 +85,7 @@ class _LoginPageState extends State<LoginPage> {
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: Theme.of(context).brightness == Brightness.dark
-                            ? Colors.white // Dark mode color
+                            ? Colors.white
                             : Color(0xFF273236))),
                 SizedBox(height: 8),
                 Text('You have successfully logged in.',
@@ -66,9 +103,9 @@ class _LoginPageState extends State<LoginPage> {
     );
 
     Future.delayed(Duration(seconds: 2), () {
-      Navigator.pop(context);
-      Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (context) => GetStartedPage2()));
+      Navigator.pop(context); // Close the dialog
+      _navigateBasedOnFirstTimeStatus(
+          context); // Navigate based on first-time status
     });
   }
 
@@ -99,12 +136,41 @@ class _LoginPageState extends State<LoginPage> {
                               Center(child: CircularProgressIndicator()),
                         );
                       } else if (state is LoginSuccess) {
-                        Navigator.pop(context); 
-                        await TokenService.saveToken(state.authentication
-                            .token); 
-                        _showSuccessDialog(context); 
+                        Navigator.pop(context);
+                        await TokenService.saveToken(
+                            state.authentication.token);
+
+                        try {
+                          final token = await TokenService.getToken();
+                          final isFirstTime = await DisabilityRepositoryImpl()
+                              .checkFirstTime(token!);
+
+                          if (isFirstTime) {
+                            // First-time user: Go to disability setup
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) => DisabilitySetupPage()),
+                            );
+                          } else {
+                            // Returning user: Go directly to home
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) => HomeScreen()),
+                            );
+                          }
+                        } catch (e) {
+                          print('Error checking first time: $e');
+                          // Fallback: Go to home screen
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => HomeScreen()),
+                          );
+                        }
                       } else if (state is LoginFailure) {
-                        Navigator.pop(context); 
+                        Navigator.pop(context); // Close loading dialog
                         setState(() {
                           emailError = state.errorMessage.contains('email')
                               ? 'Invalid email or password'
@@ -130,8 +196,8 @@ class _LoginPageState extends State<LoginPage> {
                                 fontWeight: FontWeight.bold,
                                 color: Theme.of(context).brightness ==
                                         Brightness.dark
-                                    ? Colors.white // Dark mode color
-                                    : Color(0xFF273236), // Light mode color
+                                    ? Colors.white
+                                    : Color(0xFF273236),
                               ),
                             ),
                             SizedBox(height: 8),
@@ -227,13 +293,11 @@ class _LoginPageState extends State<LoginPage> {
                                           email: email, password: password));
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Theme.of(context)
-                                              .brightness ==
-                                          Brightness.dark
-                                      ? Colors
-                                          .white // White button in dark mode
-                                      : Color(
-                                          0xFF191E20), // Dark button in light mode
+                                  backgroundColor:
+                                      Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Colors.white
+                                          : Color(0xFF191E20),
                                   padding: EdgeInsets.symmetric(vertical: 18),
                                   shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(12)),
@@ -252,12 +316,12 @@ class _LoginPageState extends State<LoginPage> {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Text("Don’t have an account? ",
+                                  Text("Don't have an account? ",
                                       style: TextStyle(
                                           fontSize: 16,
                                           color: Theme.of(context).brightness ==
                                                   Brightness.dark
-                                              ? Colors.white // Dark mode color
+                                              ? Colors.white
                                               : Color(0xFF273236))),
                                   TextButton(
                                     onPressed: () {
