@@ -18,6 +18,7 @@ import 'package:lingua_arv1/screens/settings/Update_Accounts/update_password_pag
 import 'package:lingua_arv1/screens/settings/theme/theme_provider.dart';
 import 'package:lingua_arv1/validators/token.dart';
 import 'package:provider/provider.dart';
+import 'package:shimmer/shimmer.dart';
 
 class SettingsPage extends StatefulWidget {
   @override
@@ -27,6 +28,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   String? userId;
   Map<String, String> settings = {};
+  bool _isLoading = true; // ✅ shimmer flag
 
   Future<void> _loadUserId() async {
     String? fetchedUserId = await TokenService.getUserId();
@@ -40,6 +42,7 @@ class _SettingsPageState extends State<SettingsPage> {
         settings['Email'] = fetchedEmail ?? 'No Email Found';
         settings['Theme'] = isDarkMode ? 'Dark' : 'Light';
         settings['Disability'] = fetchedDisability ?? 'None';
+        _isLoading = false; // ✅ stop shimmer
       });
     }
   }
@@ -52,7 +55,9 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
     _scrollController = ScrollController();
     _scrollController.addListener(_onScroll);
-    _loadUserId();
+
+    // Simulate load
+    Future.delayed(const Duration(seconds: 2), _loadUserId);
   }
 
   void _onScroll() {
@@ -140,30 +145,31 @@ class _SettingsPageState extends State<SettingsPage> {
               create: (context) => ChangePasswordBloc(PasswordRepositoryImpl(),
                   resetPasswordRepository: null)),
         ],
-        child: UpdatePasswordModal(), // Now it's correctly provided.
+        child: UpdatePasswordModal(),
       ),
     );
   }
 
-  // void _showUpdateDisabilityModal(BuildContext context) {
-  //   showModalBottomSheet(
-  //     context: context,
-  //     isScrollControlled: true,
-  //     shape: RoundedRectangleBorder(
-  //       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-  //     ),
-  //     builder: (context) => MultiBlocProvider(
-  //       providers: [
-  //         BlocProvider(
-  //           create: (context) => ChangeDisabilityBloc(
-  //             DisabilityRepositoryImpl(),
-  //           ),
-  //         ),
-  //       ],
-  //       child: UpdateDisabilityForm(), // Make sure this is a Widget, not void
-  //     ),
-  //   );
-  // }
+  Widget _buildShimmerList() {
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: 6,
+      itemBuilder: (context, index) {
+        return Shimmer.fromColors(
+          baseColor: Colors.grey[300]!,
+          highlightColor: Colors.grey[100]!,
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            height: 60,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -194,92 +200,94 @@ class _SettingsPageState extends State<SettingsPage> {
       backgroundColor: Theme.of(context).brightness == Brightness.dark
           ? Color(0xFF273236)
           : Color(0xFFFEFFFE),
-      body: NestedScrollView(
-        controller: _scrollController,
-        headerSliverBuilder: (context, innerBoxIsScrolled) {
-          return [
-            SliverAppBar(
-              pinned: true,
-              automaticallyImplyLeading: false,
-              backgroundColor: appBarColor,
-              elevation: 4,
-              expandedHeight: kToolbarHeight,
-              flexibleSpace: FlexibleSpaceBar(
-                centerTitle: true,
-                title: Text(
-                  'Settings',
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.045,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? Colors.white
-                        : (appBarColor == const Color(0xFFFEFFFE)
-                            ? Colors.black
-                            : Colors.white),
+      body: _isLoading
+          ? _buildShimmerList() // ✅ shimmer while loading
+          : NestedScrollView(
+              controller: _scrollController,
+              headerSliverBuilder: (context, innerBoxIsScrolled) {
+                return [
+                  SliverAppBar(
+                    pinned: true,
+                    automaticallyImplyLeading: false,
+                    backgroundColor: appBarColor,
+                    elevation: 4,
+                    expandedHeight: kToolbarHeight,
+                    flexibleSpace: FlexibleSpaceBar(
+                      centerTitle: true,
+                      title: Text(
+                        'Settings',
+                        style: TextStyle(
+                          fontSize: screenWidth * 0.045,
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? Colors.white
+                              : (appBarColor == const Color(0xFFFEFFFE)
+                                  ? Colors.black
+                                  : Colors.white),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
-          ];
-        },
-        body: ListView(
-          children: [
-            _buildSectionHeader(
-                'GENERAL', sectionHeaderPadding, subtitleFontSize),
-            SettingListTile(
-              title: 'Theme',
-              value: settings['Theme'] ?? 'Light',
-              icon: Icons.brightness_6,
-              onTap: () => _showThemeDialog(context),
-            ),
-            _buildSectionHeader(
-                'ACCOUNT', sectionHeaderPadding, subtitleFontSize),
-            SettingListTile(
-              title: 'Email',
-              value: settings['Email'] ?? 'No Email Found',
-              icon: Icons.email,
-              onTap: () => _showUpdateEmailModal(context),
-            ),
-            SettingListTile(
-              title: 'Password',
-              value: settings['Password'] ?? '********',
-              icon: Icons.lock,
-              onTap: () => _showUpdatePasswordlModal(context),
-            ),
-            SettingListTile(
-              title: 'Disability',
-              value: settings['Disability'] ?? 'None',
-              icon: Icons.accessibility,
-              onTap: () async {
-                await showUpdateDisabilityModal(context);
-                _loadUserId(); // refresh after bottom sheet closes
+                ];
               },
-            ),
-            _buildSectionHeader(
-                'About and Support', sectionHeaderPadding, subtitleFontSize),
-            SettingListTile(
-              title: 'Privacy Policy',
-              value: '',
-              icon: Icons.privacy_tip,
-              onTap: () => showPrivacyPolicy(context),
-            ),
-            Padding(
-              padding: listTilePadding,
-              child: ListTile(
-                leading: Icon(Icons.exit_to_app, color: Colors.red),
-                title: Text(
-                  'Logout',
-                  style: TextStyle(
-                    fontSize: listTileFontSize,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.red,
+              body: ListView(
+                children: [
+                  _buildSectionHeader(
+                      'GENERAL', sectionHeaderPadding, subtitleFontSize),
+                  SettingListTile(
+                    title: 'Theme',
+                    value: settings['Theme'] ?? 'Light',
+                    icon: Icons.brightness_6,
+                    onTap: () => _showThemeDialog(context),
                   ),
-                ),
-                onTap: () => showLogoutDialog(context),
+                  _buildSectionHeader(
+                      'ACCOUNT', sectionHeaderPadding, subtitleFontSize),
+                  SettingListTile(
+                    title: 'Email',
+                    value: settings['Email'] ?? 'No Email Found',
+                    icon: Icons.email,
+                    onTap: () => _showUpdateEmailModal(context),
+                  ),
+                  SettingListTile(
+                    title: 'Password',
+                    value: settings['Password'] ?? '********',
+                    icon: Icons.lock,
+                    onTap: () => _showUpdatePasswordlModal(context),
+                  ),
+                  SettingListTile(
+                    title: 'Disability',
+                    value: settings['Disability'] ?? 'None',
+                    icon: Icons.accessibility,
+                    onTap: () async {
+                      await showUpdateDisabilityModal(context);
+                      _loadUserId(); // refresh after modal
+                    },
+                  ),
+                  _buildSectionHeader('About and Support', sectionHeaderPadding,
+                      subtitleFontSize),
+                  SettingListTile(
+                    title: 'Privacy Policy',
+                    value: '',
+                    icon: Icons.privacy_tip,
+                    onTap: () => showPrivacyPolicy(context),
+                  ),
+                  Padding(
+                    padding: listTilePadding,
+                    child: ListTile(
+                      leading: Icon(Icons.exit_to_app, color: Colors.red),
+                      title: Text(
+                        'Logout',
+                        style: TextStyle(
+                          fontSize: listTileFontSize,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.red,
+                        ),
+                      ),
+                      onTap: () => showLogoutDialog(context),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
-      ),
     );
   }
 

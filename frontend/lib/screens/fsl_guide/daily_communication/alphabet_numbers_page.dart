@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:lingua_arv1/repositories/Config.dart';
 import 'package:lingua_arv1/validators/token.dart';
+import 'package:shimmer/shimmer.dart';
 
 class AlphabetNumbersPage extends StatefulWidget {
   @override
@@ -23,19 +24,18 @@ class _AlphabetNumbersPageState extends State<AlphabetNumbersPage> {
   late ScrollController _scrollController;
   Color appBarColor = Color(0xFFFEFFFE);
 
+  bool _isLoadingFavorites = true; // shimmer toggle
+
   @override
   void initState() {
     super.initState();
     _scrollController = ScrollController();
     _scrollController.addListener(() {
       bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
       setState(() {
         appBarColor = _scrollController.offset > 50
-            ? const Color(0xFF4A90E2) // Scrolled color
-            : (isDarkMode
-                ? Color(0xFF273236)
-                : const Color(0xFFFEFFFE)); // ✅ Black in dark mode
+            ? const Color(0xFF4A90E2)
+            : (isDarkMode ? Color(0xFF273236) : const Color(0xFFFEFFFE));
       });
     });
     _loadUserId();
@@ -50,13 +50,22 @@ class _AlphabetNumbersPageState extends State<AlphabetNumbersPage> {
   Future<void> _loadUserId() async {
     userId = await TokenService.getUserId();
     if (userId != null) {
-      _fetchFavorites();
+      await _fetchFavorites();
+    }
+
+    // ✅ artificial delay so shimmer shows at least 1.5s
+    await Future.delayed(const Duration(milliseconds: 1500));
+
+    if (mounted) {
+      setState(() {
+        _isLoadingFavorites = false;
+      });
     }
   }
 
   /// Fetch user's favorite phrases from API
   Future<void> _fetchFavorites() async {
-    if (userId == null) return; // Ensure userId is not null
+    if (userId == null) return;
     try {
       final response =
           await http.get(Uri.parse('$basicurl/favorites/favorites/$userId'));
@@ -76,18 +85,12 @@ class _AlphabetNumbersPageState extends State<AlphabetNumbersPage> {
     }
   }
 
-  /// Toggle favorite status for a phrase
+  /// Toggle favorite
   Future<void> _toggleFavorite(String phrase) async {
-    if (userId == null) {
-      print("❌ Error: User ID is null, cannot toggle favorite.");
-      return;
-    }
+    if (userId == null) return;
 
     String mappedValue = alphabetNumbersMappings[phrase] ?? "";
-    if (mappedValue.isEmpty) {
-      print("❌ Error: No mapped value found for phrase: $phrase");
-      return;
-    }
+    if (mappedValue.isEmpty) return;
 
     bool isFavorite = favorites[phrase] ?? false;
     String url = '$basicurl/favorites/favorites';
@@ -100,35 +103,25 @@ class _AlphabetNumbersPageState extends State<AlphabetNumbersPage> {
 
     try {
       if (isFavorite) {
-        // Remove from favorites
         final response = await http.delete(
           Uri.parse('$url/$userId/${Uri.encodeComponent(phrase)}'),
           headers: headers,
         );
-
         if (response.statusCode == 200) {
           setState(() {
             favorites[phrase] = false;
           });
-          print("✅ Removed from favorites: $phrase ($mappedValue)");
-        } else {
-          print("❌ Error removing favorite: ${response.body}");
         }
       } else {
-        // Add to favorites with mapped value
         final response = await http.post(
           Uri.parse(url),
           headers: headers,
           body: jsonEncode(body),
         );
-
         if (response.statusCode == 201) {
           setState(() {
             favorites[phrase] = true;
           });
-          print("✅ Added to favorites: $phrase ($mappedValue)");
-        } else {
-          print("❌ Error adding favorite: ${response.body}");
         }
       }
     } catch (e) {
@@ -167,13 +160,44 @@ class _AlphabetNumbersPageState extends State<AlphabetNumbersPage> {
     );
   }
 
+  Widget _buildShimmerList() {
+    return ListView.builder(
+      padding: EdgeInsets.all(16),
+      itemCount: 8,
+      itemBuilder: (context, index) {
+        return Card(
+          elevation: 5,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: ListTile(
+            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            title: Shimmer.fromColors(
+              baseColor: Colors.grey[300]!,
+              highlightColor: Colors.grey[100]!,
+              child: Container(
+                height: 16,
+                width: 100,
+                color: Colors.white,
+              ),
+            ),
+            trailing: Shimmer.fromColors(
+              baseColor: Colors.grey[300]!,
+              highlightColor: Colors.grey[100]!,
+              child: Icon(Icons.star, color: Colors.white),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     if (_scrollController.hasClients && _scrollController.offset > 50) {
-      appBarColor = const Color(0xFF4A90E2); // ✅ Keeps blue if already scrolled
+      appBarColor = const Color(0xFF4A90E2);
     } else {
       appBarColor = isDarkMode
           ? const Color.fromARGB(255, 29, 29, 29)
@@ -183,16 +207,14 @@ class _AlphabetNumbersPageState extends State<AlphabetNumbersPage> {
     return BlocProvider(
       create: (context) => GifBloc(),
       child: Scaffold(
-        backgroundColor: Theme.of(context).brightness == Brightness.dark
-            ? Color(0xFF273236)
-            : const Color(0xFFFEFFFE),
+        backgroundColor:
+            isDarkMode ? Color(0xFF273236) : const Color(0xFFFEFFFE),
         body: NestedScrollView(
           controller: _scrollController,
           headerSliverBuilder: (context, innerBoxIsScrolled) {
             return [
               SliverAppBar(
                 pinned: true,
-                // automaticallyImplyLeading: false,
                 backgroundColor: appBarColor,
                 elevation: 4,
                 expandedHeight: kToolbarHeight,
@@ -202,8 +224,8 @@ class _AlphabetNumbersPageState extends State<AlphabetNumbersPage> {
                     'Alphabets and Numbers',
                     style: TextStyle(
                       fontSize: screenWidth * 0.045,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? Colors.white // ✅ Always white in dark mode
+                      color: isDarkMode
+                          ? Colors.white
                           : (appBarColor == const Color(0xFFFEFFFE)
                               ? Colors.black
                               : Colors.white),
@@ -213,40 +235,42 @@ class _AlphabetNumbersPageState extends State<AlphabetNumbersPage> {
               ),
             ];
           },
-          body: ListView.builder(
-            padding: EdgeInsets.all(16),
-            itemCount: phrases.length,
-            itemBuilder: (context, index) {
-              String phrase = phrases[index];
-              bool isFavorite = favorites[phrase] ?? false;
-              return Card(
-                elevation: 5,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                child: ListTile(
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  title: Text(phrase,
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  trailing: IconButton(
-                    icon: Icon(
-                      isFavorite ? Icons.star : Icons.star_border,
-                      color: isFavorite ? Colors.yellow : Colors.grey,
-                    ),
-                    onPressed: () => _toggleFavorite(phrase),
-                  ),
-                  onTap: () {
-                    String publicId = alphabetNumbersMappings[phrase] ?? '';
-                    if (publicId.isNotEmpty) {
-                      context
-                          .read<GifBloc>()
-                          .add(FetchGif(phrase: phrase, publicId: publicId));
-                    }
+          body: _isLoadingFavorites
+              ? _buildShimmerList()
+              : ListView.builder(
+                  padding: EdgeInsets.all(16),
+                  itemCount: phrases.length,
+                  itemBuilder: (context, index) {
+                    String phrase = phrases[index];
+                    bool isFavorite = favorites[phrase] ?? false;
+                    return Card(
+                      elevation: 5,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      child: ListTile(
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        title: Text(phrase,
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        trailing: IconButton(
+                          icon: Icon(
+                            isFavorite ? Icons.star : Icons.star_border,
+                            color: isFavorite ? Colors.yellow : Colors.grey,
+                          ),
+                          onPressed: () => _toggleFavorite(phrase),
+                        ),
+                        onTap: () {
+                          String publicId =
+                              alphabetNumbersMappings[phrase] ?? '';
+                          if (publicId.isNotEmpty) {
+                            context.read<GifBloc>().add(
+                                FetchGif(phrase: phrase, publicId: publicId));
+                          }
+                        },
+                      ),
+                    );
                   },
                 ),
-              );
-            },
-          ),
         ),
         bottomSheet: BlocBuilder<GifBloc, GifState>(
           builder: (context, state) {
@@ -256,8 +280,6 @@ class _AlphabetNumbersPageState extends State<AlphabetNumbersPage> {
             if (state is GifLoaded) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _showGifPopup(context, state.phrase, state.gifUrl);
-
-                // Reset Bloc state to prevent showing the popup again
                 context.read<GifBloc>().add(ResetGifState());
               });
             }
