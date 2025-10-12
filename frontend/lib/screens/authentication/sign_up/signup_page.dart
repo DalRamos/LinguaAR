@@ -158,6 +158,11 @@ class _SignUpPageState extends State<SignUpPage> {
                                 errorText: passwordError,
                               ),
                             ),
+                            // Password requirements bullet points
+                            if (passwordController.text.isNotEmpty &&
+                                !PasswordValidator.PasswordValid(
+                                    passwordController.text))
+                              _buildPasswordRequirements(),
                             SizedBox(height: 20),
                             TextField(
                               controller: confirmPasswordController,
@@ -295,6 +300,60 @@ class _SignUpPageState extends State<SignUpPage> {
     );
   }
 
+  Widget _buildPasswordRequirements() {
+    final password = passwordController.text;
+    final requirements = PasswordValidator.getPasswordRequirements(password);
+    final missingRequirements = requirements.where((req) => !req['isMet']).toList();
+
+    if (missingRequirements.isEmpty) return SizedBox();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0, left: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Password must contain:',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
+            ),
+          ),
+          SizedBox(height: 4),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: missingRequirements.map((requirement) {
+              return Padding(
+                padding: const EdgeInsets.only(left: 8.0, bottom: 2.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '• ',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.red,
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        requirement['message'],
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.red,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _handleSignUp(BuildContext context) {
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
@@ -325,10 +384,9 @@ class _SignUpPageState extends State<SignUpPage> {
         passwordError = 'Please enter a new password.';
       });
       return;
-    } else if (!PasswordValidator.isPasswordValid(password)) {
+    } else if (!PasswordValidator.PasswordValid(password)) {
       setState(() {
-        passwordError =
-            'Password must contain at least 1 uppercase letter,\n1 number, 1 special character, and be 8-12 characters long.';
+        passwordError = 'Please fix the password requirements above.';
       });
       return;
     }

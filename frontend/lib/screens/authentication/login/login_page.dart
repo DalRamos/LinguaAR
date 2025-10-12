@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:lingua_arv1/Widgets/toast.dart';
 import 'package:lingua_arv1/bloc/Login/login_bloc.dart';
 import 'package:lingua_arv1/bloc/Login/login_event.dart';
 import 'package:lingua_arv1/bloc/Login/login_state.dart';
@@ -53,6 +54,12 @@ class _LoginPageState extends State<LoginPage> {
       }
     } catch (e) {
       print('Error checking first time status: $e');
+      // Show error toast
+      TopToast.show(
+        context,
+        'Error checking user status',
+        type: ToastType.error,
+      );
       // If there's an error, proceed to home screen
       Navigator.pushAndRemoveUntil(
         context,
@@ -140,6 +147,14 @@ class _LoginPageState extends State<LoginPage> {
                         );
                       } else if (state is LoginSuccess) {
                         Navigator.pop(context);
+
+                        // Show success toast
+                        TopToast.show(
+                          context,
+                          'Login successful!',
+                          type: ToastType.success,
+                        );
+
                         await TokenService.saveToken(
                             state.authentication.token);
 
@@ -167,6 +182,12 @@ class _LoginPageState extends State<LoginPage> {
                           }
                         } catch (e) {
                           print('Error checking first time: $e');
+                          // Show error toast
+                          TopToast.show(
+                            context,
+                            'Error checking user preferences',
+                            type: ToastType.error,
+                          );
                           // Fallback: Go to home screen
                           Navigator.pushAndRemoveUntil(
                             context,
@@ -177,6 +198,14 @@ class _LoginPageState extends State<LoginPage> {
                         }
                       } else if (state is LoginFailure) {
                         Navigator.pop(context); // Close loading dialog
+
+                        // Show error toast
+                        TopToast.show(
+                          context,
+                          state.errorMessage,
+                          type: ToastType.error,
+                        );
+
                         setState(() {
                           emailError = state.errorMessage.contains('email')
                               ? 'Invalid email or password'
@@ -283,7 +312,30 @@ class _LoginPageState extends State<LoginPage> {
                                   final email = emailController.text.trim();
                                   final password =
                                       passwordController.text.trim();
+
+                                  // Validate fields
                                   if (email.isEmpty || password.isEmpty) {
+                                    // Show warning toast for empty fields
+                                    if (email.isEmpty && password.isEmpty) {
+                                      TopToast.show(
+                                        context,
+                                        'Please enter email and password',
+                                        type: ToastType.warning,
+                                      );
+                                    } else if (email.isEmpty) {
+                                      TopToast.show(
+                                        context,
+                                        'Please enter your email',
+                                        type: ToastType.warning,
+                                      );
+                                    } else {
+                                      TopToast.show(
+                                        context,
+                                        'Please enter your password',
+                                        type: ToastType.warning,
+                                      );
+                                    }
+
                                     setState(() {
                                       emailError = email.isEmpty
                                           ? 'Email is required'
@@ -294,6 +346,7 @@ class _LoginPageState extends State<LoginPage> {
                                     });
                                     return;
                                   }
+
                                   BlocProvider.of<LoginBloc>(context).add(
                                       LoginButtonPressed(
                                           email: email, password: password));
