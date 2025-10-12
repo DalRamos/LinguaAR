@@ -1,4 +1,4 @@
-# app.py (updated)
+
 from flask import Flask
 from routes.auth_routes import create_auth_routes
 from routes.gesture_routes import create_gesture_routes
@@ -9,6 +9,7 @@ from routes.otp import create_otp_routes
 from routes.touch import create_touch_routes
 from routes.favotites import create_favorites_routes
 from routes.lesson_flow_routes import create_lesson_flow_routes
+from routes.disability_routes import create_disability_routes 
 from routes.disability_routes import create_disability_routes 
 
 def create_app():
@@ -30,12 +31,8 @@ def create_app():
     create_lesson_flow_routes(app)
     create_disability_routes(app)  
 
-    return app, socketio
+    return app
 
-app, socketio = create_app()
+app = create_app()
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
-    local_ip = socket.gethostbyname(socket.gethostname())
-    print(f"Server running on:")
-    print(f"Local: http://127.0.0.1:5000")
-    print(f"Network: http://{local_ip}:5000/ (for mobile access)")
+    app.run(debug=True, host='0.0.0.0', port=5000)

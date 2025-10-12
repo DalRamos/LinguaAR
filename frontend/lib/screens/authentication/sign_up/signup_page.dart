@@ -6,7 +6,7 @@ import 'package:lingua_arv1/bloc/Register/register_bloc.dart';
 import 'package:lingua_arv1/repositories/Register_repositories/register_repository_impl.dart';
 import 'package:lingua_arv1/repositories/otp_repositories/otp_repository_impl.dart';
 import 'package:lingua_arv1/screens/authentication/login/login_page.dart';
-import 'package:lingua_arv1/screens/authentication/sign_up/widgets/signup_dialog.dart';
+import 'package:lingua_arv1/Widgets/toast.dart';
 import 'package:lingua_arv1/screens/verification/verification_email.dart';
 import 'package:lingua_arv1/validators/password_validator.dart';
 

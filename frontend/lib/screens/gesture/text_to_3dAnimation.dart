@@ -42,7 +42,7 @@ class _TextTo3DTabState extends State<TextTo3DTab> with SingleTickerProviderStat
     _initializeTts();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000),
+      duration: const Duration(milliseconds: 5000),
     );
   }
 

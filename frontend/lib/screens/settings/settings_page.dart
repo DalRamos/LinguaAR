@@ -150,24 +150,117 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildShimmerList() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: 6,
-      itemBuilder: (context, index) {
-        return Shimmer.fromColors(
-          baseColor: Colors.grey[300]!,
-          highlightColor: Colors.grey[100]!,
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 8),
-            height: 60,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
+  Widget _buildShimmerLoading() {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    bool isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    return CustomScrollView(
+      slivers: [
+        // Shimmer App Bar
+        SliverAppBar(
+          pinned: true,
+          automaticallyImplyLeading: false,
+          backgroundColor: isDarkMode ? Color(0xFF273236) : Color(0xFFFEFFFE),
+          elevation: 4,
+          expandedHeight: kToolbarHeight,
+          flexibleSpace: FlexibleSpaceBar(
+            centerTitle: true,
+            title: Shimmer.fromColors(
+              baseColor: Colors.grey[300]!,
+              highlightColor: Colors.grey[100]!,
+              child: Container(
+                width: 100,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
             ),
           ),
-        );
-      },
+        ),
+        // Shimmer Content
+        SliverList(
+          delegate: SliverChildListDelegate([
+            // General Section Header
+            _buildShimmerSectionHeader(screenWidth, screenHeight),
+            // Theme Setting
+            _buildShimmerListTile(screenWidth, screenHeight),
+            // Account Section Header
+            _buildShimmerSectionHeader(screenWidth, screenHeight),
+            // Email Setting
+            _buildShimmerListTile(screenWidth, screenHeight),
+            // Password Setting
+            _buildShimmerListTile(screenWidth, screenHeight),
+            // Disability Setting
+            _buildShimmerListTile(screenWidth, screenHeight),
+            // About Section Header
+            _buildShimmerSectionHeader(screenWidth, screenHeight),
+            // Privacy Policy
+            _buildShimmerListTile(screenWidth, screenHeight),
+            // Logout
+            Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: screenWidth * 0.04,
+                vertical: screenHeight * 0.015,
+              ),
+              child: Shimmer.fromColors(
+                baseColor: Colors.grey[300]!,
+                highlightColor: Colors.grey[100]!,
+                child: Container(
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildShimmerSectionHeader(double screenWidth, double screenHeight) {
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: screenWidth * 0.04,
+        vertical: screenHeight * 0.02,
+      ),
+      child: Shimmer.fromColors(
+        baseColor: Colors.grey[300]!,
+        highlightColor: Colors.grey[100]!,
+        child: Container(
+          width: 120,
+          height: 20,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShimmerListTile(double screenWidth, double screenHeight) {
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: screenWidth * 0.04,
+        vertical: screenHeight * 0.015,
+      ),
+      child: Shimmer.fromColors(
+        baseColor: Colors.grey[300]!,
+        highlightColor: Colors.grey[100]!,
+        child: Container(
+          height: 60,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
     );
   }
 
@@ -201,7 +294,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ? Color(0xFF273236)
           : Color(0xFFFEFFFE),
       body: _isLoading
-          ? _buildShimmerList() // ✅ shimmer while loading
+          ? _buildShimmerLoading() // ✅ Complete shimmer with app bar
           : NestedScrollView(
               controller: _scrollController,
               headerSliverBuilder: (context, innerBoxIsScrolled) {

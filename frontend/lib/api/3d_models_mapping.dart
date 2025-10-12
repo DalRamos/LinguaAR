@@ -1,7 +1,7 @@
 final Map<String, String> letterModels = {
 
   //Letters
-  "A": "https://drive.google.com/uc?export=download&id=18PK5QZADTA2TdXUv6hG7iCaLiP7zIgxJ",
+  "A": "https://drive.google.com/uc?export=download&id=1ack26mpo2SuyUjA4okkteMBuGwvBz9bm",
   "B": "https://drive.google.com/uc?export=download&id=15JpKabuYvDLtNtBt4wLmoj7LV7fXYYXo",
   "C": "https://drive.google.com/uc?export=download&id=1P7_XSFccunfmF0oJyaDt62DrMyfRKL7o",
   "D": "https://drive.google.com/uc?export=download&id=1D-oa7Edrjb8XTWEJ0b-8Ob46w4cEDbSj",

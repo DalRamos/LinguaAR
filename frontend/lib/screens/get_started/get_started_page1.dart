@@ -89,7 +89,7 @@ class GetStartedPage1 extends StatelessWidget {
                   ZoomIn(
                     child: ElevatedButton(
                       onPressed: () {
-                        Navigator.push(
+                        Navigator.pushReplacement(
                           context,
                           MaterialPageRoute(
                             builder: (context) => LoginPage(),

@@ -5,6 +5,7 @@ import 'package:lingua_arv1/screens/fsl_Quiz/lesson_flow_page.dart';
 import 'package:lingua_arv1/services/progress_store.dart';
 import 'package:lingua_arv1/repositories/lesson_flow_repositories/lesson_flow_repository_impl.dart';
 import 'package:lingua_arv1/validators/token.dart';
+import 'package:shimmer/shimmer.dart';
 
 class FslLessonsSection extends StatefulWidget {
   final String trackKey;
@@ -56,8 +57,7 @@ class _FslLessonsSectionState extends State<FslLessonsSection> {
 
         // If backend has more progress, use backend progress + 1 (next available lesson)
         if (backendIndex > localIndex) {
-          finalIndex = backendIndex +
-              1; 
+          finalIndex = backendIndex + 1;
           print('🔄 Backend has more progress, updating to: $finalIndex');
         } else if (backendIndex >= 0) {
           finalIndex =
@@ -152,6 +152,47 @@ class _FslLessonsSectionState extends State<FslLessonsSection> {
     return null;
   }
 
+  Widget _buildShimmerLoading() {
+    return Column(
+      children: [
+        // Shimmer for header
+        Shimmer.fromColors(
+          baseColor: Colors.grey[300]!,
+          highlightColor: Colors.grey[100]!,
+          child: Container(
+            margin: const EdgeInsets.all(16),
+            height: 60,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+        // Shimmer for lesson items
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            itemCount: 6,
+            itemBuilder: (context, index) {
+              return Shimmer.fromColors(
+                baseColor: Colors.grey[300]!,
+                highlightColor: Colors.grey[100]!,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 8),
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   void _showLockedSnack() {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -165,11 +206,7 @@ class _FslLessonsSectionState extends State<FslLessonsSection> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return _buildShimmerLoading();
     }
 
     return Column(

@@ -122,10 +122,20 @@ class _SignSearchListState extends State<SignSearchList> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = widget.mappings.keys
-        .where(
-            (e) => e.toLowerCase().contains(widget.searchQuery.toLowerCase()))
-        .toList();
+    // Search for words that START WITH the search query
+    final filtered = widget.mappings.keys.where((phrase) {
+      if (widget.searchQuery.isEmpty) return false;
+
+      // Convert both to lowercase for case-insensitive search
+      String searchLower = widget.searchQuery.toLowerCase();
+      String phraseLower = phrase.toLowerCase();
+
+      // Check if the phrase STARTS WITH the search query
+      return phraseLower.startsWith(searchLower);
+    }).toList();
+
+    // Sort results alphabetically
+    filtered.sort((a, b) => a.compareTo(b));
 
     return BlocProvider(
       create: (context) => GifBloc(),
@@ -145,37 +155,48 @@ class _SignSearchListState extends State<SignSearchList> {
             );
           }
         },
-        child: Column(
-          children: filtered.map((phrase) {
-            bool isFavorite = widget.favorites[phrase] ?? false;
-            return Card(
-              elevation: 5,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              child: ListTile(
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                title:
-                    Text(phrase, style: TextStyle(fontWeight: FontWeight.bold)),
-                trailing: IconButton(
-                  icon: Icon(
-                    isFavorite ? Icons.star : Icons.star_border,
-                    color: isFavorite ? Colors.yellow : Colors.grey,
+        child: filtered.isEmpty
+            ? Padding(
+                padding: EdgeInsets.all(20),
+                child: Text(
+                  'No results found for "${widget.searchQuery}"',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey,
                   ),
-                  onPressed: () => _toggleFavorite(phrase),
+                  textAlign: TextAlign.center,
                 ),
-                onTap: () {
-                  String publicId = widget.mappings[phrase] ?? '';
-                  if (publicId.isNotEmpty) {
-                    context
-                        .read<GifBloc>()
-                        .add(FetchGif(phrase: phrase, publicId: publicId));
-                  }
-                },
+              )
+            : Column(
+                children: filtered.map((phrase) {
+                  bool isFavorite = widget.favorites[phrase] ?? false;
+                  return Card(
+                    elevation: 5,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    child: ListTile(
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      title: Text(phrase,
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      trailing: IconButton(
+                        icon: Icon(
+                          isFavorite ? Icons.star : Icons.star_border,
+                          color: isFavorite ? Colors.yellow : Colors.grey,
+                        ),
+                        onPressed: () => _toggleFavorite(phrase),
+                      ),
+                      onTap: () {
+                        String publicId = widget.mappings[phrase] ?? '';
+                        if (publicId.isNotEmpty) {
+                          context.read<GifBloc>().add(
+                              FetchGif(phrase: phrase, publicId: publicId));
+                        }
+                      },
+                    ),
+                  );
+                }).toList(),
               ),
-            );
-          }).toList(),
-        ),
       ),
     );
   }

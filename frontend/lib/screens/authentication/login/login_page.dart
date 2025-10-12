@@ -36,25 +36,28 @@ class _LoginPageState extends State<LoginPage> {
         if (isFirstTime) {
           print("First time user - navigating to disability setup");
           // Navigate to disability setup page
-          Navigator.pushReplacement(
+          Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (context) => DisabilitySetupPage()),
+            (route) => false,
           );
         } else {
-          print("Returning user - navigating directly to get started");
-          // Navigate directly to get started page
-          Navigator.pushReplacement(
+          print("Returning user - navigating directly to home");
+          // Navigate directly to home screen
+          Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(builder: (context) => GetStartedPage2()),
+            MaterialPageRoute(builder: (context) => HomeScreen()),
+            (route) => false,
           );
         }
       }
     } catch (e) {
       print('Error checking first time status: $e');
-      // If there's an error, proceed to get started page
-      Navigator.pushReplacement(
+      // If there's an error, proceed to home screen
+      Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (context) => GetStartedPage2()),
+        MaterialPageRoute(builder: (context) => HomeScreen()),
+        (route) => false,
       );
     }
   }
@@ -147,26 +150,29 @@ class _LoginPageState extends State<LoginPage> {
 
                           if (isFirstTime) {
                             // First-time user: Go to disability setup
-                            Navigator.pushReplacement(
+                            Navigator.pushAndRemoveUntil(
                               context,
                               MaterialPageRoute(
                                   builder: (context) => DisabilitySetupPage()),
+                              (route) => false,
                             );
                           } else {
                             // Returning user: Go directly to home
-                            Navigator.pushReplacement(
+                            Navigator.pushAndRemoveUntil(
                               context,
                               MaterialPageRoute(
                                   builder: (context) => HomeScreen()),
+                              (route) => false,
                             );
                           }
                         } catch (e) {
                           print('Error checking first time: $e');
                           // Fallback: Go to home screen
-                          Navigator.pushReplacement(
+                          Navigator.pushAndRemoveUntil(
                             context,
                             MaterialPageRoute(
                                 builder: (context) => HomeScreen()),
+                            (route) => false,
                           );
                         }
                       } else if (state is LoginFailure) {

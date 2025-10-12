@@ -203,7 +203,7 @@ class _FSLGuidePageState extends State<FSLGuidePage> {
                             isDarkMode ? Color(0xFF191E20) : Colors.grey[200],
                       ),
                       onChanged: (value) {
-                        setState(() => searchQuery = value);
+                        setState(() => searchQuery = value.trim());
                       },
                     ),
                   ),
