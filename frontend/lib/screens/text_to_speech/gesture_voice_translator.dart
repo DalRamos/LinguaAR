@@ -60,6 +60,9 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
     if (widget.isActive) {
       _initializeCamera();
     }
+    // Print initial API endpoint
+    print("🎯 Initial API Endpoint: $_currentApiEndpoint");
+    print("🎯 Current Category: $_currentCategory");
   }
 
   @override
@@ -67,8 +70,12 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
       _initializeCamera();
+      // Print API when tab becomes active
+      print("🎯 Tab Activated - API Endpoint: $_currentApiEndpoint");
+      print("🎯 Current Category: $_currentCategory");
     } else if (!widget.isActive && oldWidget.isActive) {
       _stopCamera();
+      print("🎯 Tab Deactivated");
     }
   }
 
@@ -78,8 +85,12 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
 
     if (state == AppLifecycleState.inactive) {
       _stopCamera();
+      print("🎯 App Inactive");
     } else if (state == AppLifecycleState.resumed && widget.isActive) {
       _initializeCamera();
+      // Print API when app resumes
+      print("🎯 App Resumed - API Endpoint: $_currentApiEndpoint");
+      print("🎯 Current Category: $_currentCategory");
     }
   }
 
@@ -169,6 +180,10 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
       XFile? imageFile = await _cameraController!.takePicture();
       Uint8List imageBytes = await imageFile.readAsBytes();
 
+      // Print API endpoint before making request
+      print("🔄 Making API call to: $_currentApiEndpoint");
+      print("📊 Category: $_currentCategory");
+
       // Use the current API endpoint based on selected category
       var request =
           http.MultipartRequest('POST', Uri.parse(_currentApiEndpoint));
@@ -176,18 +191,19 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
           filename: "gesture.jpg"));
 
       var response = await request.send();
-      
+
       if (response.statusCode == 200) {
         var responseString = await response.stream.bytesToString();
         var jsonResponse = jsonDecode(responseString);
-        
+
         // Handle different response formats for different endpoints
         String character = "";
-        
+
         if (_currentCategory == "Numbers") {
           // Number endpoint response format
           if (jsonResponse["status"] == "success") {
             character = jsonResponse["predicted_character"] ?? "";
+            print("✅ Number Prediction: $character");
           } else {
             print("❌ Number API error: ${jsonResponse["message"]}");
             return;
@@ -196,6 +212,7 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
           // Alphabet endpoint response format
           if (jsonResponse["status"] == "success") {
             character = jsonResponse["predicted_character"] ?? "";
+            print("✅ Alphabet Prediction: $character");
           } else {
             print("❌ Alphabet API error: ${jsonResponse["message"]}");
             return;
@@ -203,6 +220,7 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
         } else if (_currentCategory == "Words") {
           // Word endpoint response format (placeholder)
           character = jsonResponse["message"] ?? "Words feature coming soon";
+          print("ℹ️ Words API: $character");
         }
 
         if (character.isNotEmpty &&
@@ -214,37 +232,41 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
             await flutterTts.stop();
             await flutterTts.speak(character);
             lastSpokenCharacter = character;
+            print("🔊 TTS Speaking: $character");
           }
         }
       } else {
         print("❌ API Error: ${response.statusCode}");
         print("❌ API Endpoint: $_currentApiEndpoint");
-        
+
         // Handle different error cases
         if (response.statusCode == 404) {
           setState(() {
             predictedCharacter = "No hand detected";
           });
+          print("❌ No hand detected in image");
         } else if (response.statusCode == 500) {
           setState(() {
             predictedCharacter = "Server error";
           });
+          print("❌ Server error occurred");
         } else if (response.statusCode == 501) {
           setState(() {
             predictedCharacter = "Feature coming soon";
           });
+          print("ℹ️ Words feature not implemented yet");
         }
       }
     } catch (e) {
       print("❌ Prediction error: $e");
       print("❌ API Endpoint: $_currentApiEndpoint");
-      
+
       if (_isMounted) {
         setState(() {
           predictedCharacter = "Connection error";
         });
       }
-      
+
       if (_isMounted && !_stopPrediction && widget.isActive) {
         await _initializeCamera();
       }
@@ -260,12 +282,16 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
 
     setState(() => _cameraIndex = (_cameraIndex == 0) ? 1 : 0);
     await _initializeCamera();
+    print("📷 Camera flipped to: ${_cameraIndex == 0 ? 'Front' : 'Back'}");
   }
 
   void _showCategorySelectionModal() {
     setState(() {
       _showCategoryModal = true;
     });
+
+    print("📱 Opening category selection modal");
+    print("🎯 Current API before selection: $_currentApiEndpoint");
 
     showModalBottomSheet(
       context: context,
@@ -278,18 +304,25 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
       setState(() {
         _showCategoryModal = false;
       });
+      print("📱 Category modal closed");
     });
   }
 
   void _selectCategory(String category) {
+    String oldCategory = _currentCategory;
+    String oldApi = _currentApiEndpoint;
+
     setState(() {
       _currentCategory = category;
       predictedCharacter = ""; // Clear previous prediction
       lastSpokenCharacter = ""; // Clear last spoken
     });
     Navigator.pop(context);
-    print("Selected category: $category");
-    print("API Endpoint: $_currentApiEndpoint");
+
+    print("🔄 Category changed:");
+    print("   From: $oldCategory ($oldApi)");
+    print("   To: $_currentCategory ($_currentApiEndpoint)");
+    print("🎯 New API Endpoint: $_currentApiEndpoint");
   }
 
   Widget _buildCategoryModal() {
@@ -429,11 +462,15 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
     _cameraController?.dispose().then((_) {
       _cameraController = null;
     });
+    print("🎯 GestureVoiceTab disposed");
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // Print when widget builds (when you're in the tab)
+    print("🎯 Building GestureVoiceTab - Current API: $_currentApiEndpoint");
+
     return Stack(
       children: [
         if (_isCameraReady && _cameraController != null)
