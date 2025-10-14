@@ -34,7 +34,6 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
   bool _stopPrediction = false;
   Timer? _predictionTimer;
   bool _isCameraReady = false;
-  String? _clientId;
 
   final FlutterTts flutterTts = FlutterTts();
 
@@ -79,26 +78,12 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
   Future<void> _stopCamera() async {
     _stopPrediction = true;
     _predictionTimer?.cancel();
-
-    // Stop stream on server
-    if (_clientId != null) {
-      try {
-        await http.post(
-          Uri.parse('$url/gesture/stream/stop/$_clientId'),
-        );
-        print('🛑 Stream stopped on server');
-      } catch (e) {
-        print("Error stopping stream: $e");
-      }
-    }
-
     if (_cameraController != null) {
       await _cameraController?.dispose();
     }
     if (_isMounted) {
       setState(() {
         _isCameraReady = false;
-        _clientId = null;
       });
     }
   }
@@ -117,19 +102,15 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
         await _cameraController!.dispose();
       }
 
-      // Use optimized resolution for faster processing
       _cameraController = CameraController(
         widget.cameras[_cameraIndex],
-        ResolutionPreset.high, // Changed from high to medium for speed
+        ResolutionPreset.high,
         enableAudio: false,
       );
 
       await _cameraController!.initialize();
 
       if (!_isMounted || !widget.isActive) return;
-
-      // Start streaming session with server
-      await _startStreamingSession();
 
       setState(() {
         _isFlipping = false;
@@ -149,32 +130,9 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
     }
   }
 
-  Future<void> _startStreamingSession() async {
-    try {
-      final response = await http.post(
-        Uri.parse('$url/gesture/stream/start'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(
-            {'client_id': 'voice_${DateTime.now().millisecondsSinceEpoch}'}),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        _clientId = data['client_id'];
-        print('✅ Voice streaming session started: $_clientId');
-      } else {
-        print('❌ Failed to start stream: ${response.statusCode}');
-      }
-    } catch (e) {
-      print('❌ Failed to start streaming session: $e');
-    }
-  }
-
   void _startPredictionTimer() {
     _predictionTimer?.cancel();
-    // Increased frequency for faster response
-    _predictionTimer =
-        Timer.periodic(Duration(milliseconds: 800), (timer) async {
+    _predictionTimer = Timer.periodic(Duration(seconds: 2), (timer) async {
       if (!_stopPrediction && _isMounted && widget.isActive) {
         await _predictGesture();
       }
@@ -186,8 +144,7 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
         !_isMounted ||
         !_isCameraReady ||
         _stopPrediction ||
-        !widget.isActive ||
-        _clientId == null) {
+        !widget.isActive) {
       return;
     }
 
@@ -197,36 +154,35 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
       XFile? imageFile = await _cameraController!.takePicture();
       Uint8List imageBytes = await imageFile.readAsBytes();
 
-      var request = http.MultipartRequest(
-          'POST', Uri.parse('$url/gesture/stream/frame/$_clientId'));
-
-      request.files.add(http.MultipartFile.fromBytes('frame', imageBytes,
+      var request =
+          http.MultipartRequest('POST', Uri.parse('$url/gesture/hands'));
+      request.files.add(http.MultipartFile.fromBytes('file', imageBytes,
           filename: "gesture.jpg"));
 
       var response = await request.send();
-
       if (response.statusCode == 200) {
         var jsonResponse = jsonDecode(await response.stream.bytesToString());
-        String character = jsonResponse["predicted_character"] ?? "";
-        double confidence = (jsonResponse["confidence"] ?? 0.0).toDouble();
-        bool handDetected = jsonResponse["hand_detected"] ?? false;
+        String character = jsonResponse["predicted_character"];
 
-        if (handDetected && character.isNotEmpty && _isMounted) {
+        if (character.isNotEmpty &&
+            character != predictedCharacter &&
+            _isMounted) {
           setState(() => predictedCharacter = character);
 
-          // Optimized speaking logic - higher confidence threshold for stability
-          if (character != lastSpokenCharacter && confidence > 0.75) {
+          if (character != lastSpokenCharacter) {
             await flutterTts.stop();
             await flutterTts.speak(character);
             lastSpokenCharacter = character;
           }
-        } else if (!handDetected && _isMounted) {
-          setState(() => predictedCharacter = "");
-          lastSpokenCharacter = "";
         }
+      } else {
+        print("❌ API Error: ${response.statusCode}");
       }
     } catch (e) {
       print("❌ Prediction error: $e");
+      if (_isMounted && !_stopPrediction && widget.isActive) {
+        await _initializeCamera();
+      }
     } finally {
       if (_isMounted) {
         setState(() => isPredicting = false);
@@ -259,7 +215,7 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
     return Stack(
       children: [
         if (_isCameraReady && _cameraController != null)
-          _buildFullscreenPreview(context)
+          _buildFullscreenPreview(context) // << replaced here
         else
           const Center(child: CircularProgressIndicator()),
         Positioned(
@@ -269,7 +225,7 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.7),
+              color: Colors.black.withValues(alpha:0.7),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(
@@ -278,25 +234,11 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
                 const Text("Predicted Character:",
                     style: TextStyle(fontSize: 18, color: Colors.white)),
                 const SizedBox(height: 8),
-                Text(
-                  predictedCharacter.isEmpty
-                      ? "Show your hand"
-                      : predictedCharacter,
-                  style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: predictedCharacter.isEmpty
-                          ? Colors.grey
-                          : Colors.greenAccent),
-                ),
-                if (isPredicting)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Text(
-                      "Detecting...",
-                      style: TextStyle(fontSize: 12, color: Colors.yellow),
-                    ),
-                  ),
+                Text(predictedCharacter,
+                    style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.greenAccent)),
               ],
             ),
           ),
@@ -313,6 +255,7 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
     );
   }
 
+ 
   Widget _buildFullscreenPreview(BuildContext context) {
     final size = MediaQuery.of(context).size;
 
