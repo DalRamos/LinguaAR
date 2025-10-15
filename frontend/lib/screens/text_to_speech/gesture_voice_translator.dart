@@ -39,16 +39,16 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
 
   final FlutterTts flutterTts = FlutterTts();
 
-  // API endpoints for different categories
+  // API endpoints for different categories - UPDATED WITH CORRECT WORD ENDPOINT
   String get _currentApiEndpoint {
     switch (_currentCategory) {
       case "Numbers":
-        return '$url/gesture/numbers'; // API for numbers
+        return '$url/gesture/number';
       case "Words":
-        return '$url/gesture/words'; // API for words
+        return '$url/gesture/word'; // CORRECTED: Changed from '/gesture/words' to '/gesture/word'
       case "Alphabets":
       default:
-        return '$url/gesture/hands'; // API for alphabets (default)
+        return '$url/gesture/hands';
     }
   }
 
@@ -184,78 +184,12 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
       print("🔄 Making API call to: $_currentApiEndpoint");
       print("📊 Category: $_currentCategory");
 
-      // Use the current API endpoint based on selected category
-      var request =
-          http.MultipartRequest('POST', Uri.parse(_currentApiEndpoint));
-      request.files.add(http.MultipartFile.fromBytes('file', imageBytes,
-          filename: "gesture.jpg"));
-
-      var response = await request.send();
-
-      if (response.statusCode == 200) {
-        var responseString = await response.stream.bytesToString();
-        var jsonResponse = jsonDecode(responseString);
-
-        // Handle different response formats for different endpoints
-        String character = "";
-
-        if (_currentCategory == "Numbers") {
-          // Number endpoint response format
-          if (jsonResponse["status"] == "success") {
-            character = jsonResponse["predicted_character"] ?? "";
-            print("✅ Number Prediction: $character");
-          } else {
-            print("❌ Number API error: ${jsonResponse["message"]}");
-            return;
-          }
-        } else if (_currentCategory == "Alphabets") {
-          // Alphabet endpoint response format
-          if (jsonResponse["status"] == "success") {
-            character = jsonResponse["predicted_character"] ?? "";
-            print("✅ Alphabet Prediction: $character");
-          } else {
-            print("❌ Alphabet API error: ${jsonResponse["message"]}");
-            return;
-          }
-        } else if (_currentCategory == "Words") {
-          // Word endpoint response format (placeholder)
-          character = jsonResponse["message"] ?? "Words feature coming soon";
-          print("ℹ️ Words API: $character");
-        }
-
-        if (character.isNotEmpty &&
-            character != predictedCharacter &&
-            _isMounted) {
-          setState(() => predictedCharacter = character);
-
-          if (character != lastSpokenCharacter) {
-            await flutterTts.stop();
-            await flutterTts.speak(character);
-            lastSpokenCharacter = character;
-            print("🔊 TTS Speaking: $character");
-          }
-        }
+      if (_currentCategory == "Numbers") {
+        await _predictNumber(imageBytes);
+      } else if (_currentCategory == "Words") {
+        await _predictWord(imageBytes); // NEW: Word prediction
       } else {
-        print("❌ API Error: ${response.statusCode}");
-        print("❌ API Endpoint: $_currentApiEndpoint");
-
-        // Handle different error cases
-        if (response.statusCode == 404) {
-          setState(() {
-            predictedCharacter = "No hand detected";
-          });
-          print("❌ No hand detected in image");
-        } else if (response.statusCode == 500) {
-          setState(() {
-            predictedCharacter = "Server error";
-          });
-          print("❌ Server error occurred");
-        } else if (response.statusCode == 501) {
-          setState(() {
-            predictedCharacter = "Feature coming soon";
-          });
-          print("ℹ️ Words feature not implemented yet");
-        }
+        await _predictAlphabetOrWord(imageBytes);
       }
     } catch (e) {
       print("❌ Prediction error: $e");
@@ -274,6 +208,181 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
       if (_isMounted) {
         setState(() => isPredicting = false);
       }
+    }
+  }
+
+  // Number prediction with JSON payload
+  Future<void> _predictNumber(Uint8List imageBytes) async {
+    try {
+      // Convert image to base64 for number API
+      String base64Image = base64Encode(imageBytes);
+
+      var response = await http.post(
+        Uri.parse(_currentApiEndpoint),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'image': base64Image}),
+      );
+
+      if (response.statusCode == 200) {
+        var jsonResponse = jsonDecode(response.body);
+
+        // Handle number API response format
+        if (jsonResponse["success"] == true) {
+          String character = jsonResponse["prediction"] ?? "";
+          double confidence = jsonResponse["confidence"] ?? 0.0;
+
+          print("✅ Number Prediction: $character (confidence: $confidence)");
+
+          if (character != null &&
+              character.isNotEmpty &&
+              character != predictedCharacter &&
+              _isMounted) {
+            setState(() => predictedCharacter = character);
+
+            if (character != lastSpokenCharacter) {
+              await flutterTts.stop();
+              await flutterTts.speak(character);
+              lastSpokenCharacter = character;
+              print("🔊 TTS Speaking: $character");
+            }
+          }
+        } else {
+          String error = jsonResponse["error"] ?? "Unknown error";
+          print("❌ Number API error: $error");
+          setState(() {
+            predictedCharacter = error.contains("No hand")
+                ? "No hand detected"
+                : "Prediction failed";
+          });
+        }
+      } else {
+        print("❌ Number API Error: ${response.statusCode}");
+        _handleApiError(response.statusCode);
+      }
+    } catch (e) {
+      print("❌ Number prediction error: $e");
+      setState(() {
+        predictedCharacter = "Number API error";
+      });
+    }
+  }
+
+  // NEW: Word prediction with JSON payload
+  Future<void> _predictWord(Uint8List imageBytes) async {
+    try {
+      // Convert image to base64 for word API
+      String base64Image = base64Encode(imageBytes);
+
+      var response = await http.post(
+        Uri.parse(_currentApiEndpoint),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'image': base64Image}),
+      );
+
+      if (response.statusCode == 200) {
+        var jsonResponse = jsonDecode(response.body);
+
+        // Handle word API response format
+        if (jsonResponse["success"] == true) {
+          String word = jsonResponse["prediction"] ?? "";
+          double confidence = jsonResponse["confidence"] ?? 0.0;
+
+          print("✅ Word Prediction: $word (confidence: $confidence)");
+
+          if (word != null &&
+              word.isNotEmpty &&
+              word != predictedCharacter &&
+              _isMounted) {
+            setState(() => predictedCharacter = word);
+
+            if (word != lastSpokenCharacter) {
+              await flutterTts.stop();
+              await flutterTts.speak(word);
+              lastSpokenCharacter = word;
+              print("🔊 TTS Speaking: $word");
+            }
+          }
+        } else {
+          String error = jsonResponse["error"] ?? "Unknown error";
+          print("❌ Word API error: $error");
+          setState(() {
+            predictedCharacter = error.contains("No hand")
+                ? "No hand detected"
+                : "Prediction failed";
+          });
+        }
+      } else {
+        print("❌ Word API Error: ${response.statusCode}");
+        _handleApiError(response.statusCode);
+      }
+    } catch (e) {
+      print("❌ Word prediction error: $e");
+      setState(() {
+        predictedCharacter = "Word API error";
+      });
+    }
+  }
+
+  // Existing method for alphabet/word prediction with multipart form
+  Future<void> _predictAlphabetOrWord(Uint8List imageBytes) async {
+    var request = http.MultipartRequest('POST', Uri.parse(_currentApiEndpoint));
+    request.files.add(http.MultipartFile.fromBytes('file', imageBytes,
+        filename: "gesture.jpg"));
+
+    var response = await request.send();
+
+    if (response.statusCode == 200) {
+      var responseString = await response.stream.bytesToString();
+      var jsonResponse = jsonDecode(responseString);
+
+      // Handle alphabet endpoint response format
+      if (jsonResponse["status"] == "success") {
+        String character = jsonResponse["predicted_character"] ?? "";
+        print("✅ Alphabet Prediction: $character");
+
+        if (character.isNotEmpty &&
+            character != predictedCharacter &&
+            _isMounted) {
+          setState(() => predictedCharacter = character);
+
+          if (character != lastSpokenCharacter) {
+            await flutterTts.stop();
+            await flutterTts.speak(character);
+            lastSpokenCharacter = character;
+            print("🔊 TTS Speaking: $character");
+          }
+        }
+      } else {
+        print("❌ Alphabet API error: ${jsonResponse["message"]}");
+        return;
+      }
+    } else {
+      print("❌ API Error: ${response.statusCode}");
+      print("❌ API Endpoint: $_currentApiEndpoint");
+      _handleApiError(response.statusCode);
+    }
+  }
+
+  void _handleApiError(int statusCode) {
+    if (statusCode == 404) {
+      setState(() {
+        predictedCharacter = "No hand detected";
+      });
+      print("❌ No hand detected in image");
+    } else if (statusCode == 500) {
+      setState(() {
+        predictedCharacter = "Server error";
+      });
+      print("❌ Server error occurred");
+    } else if (statusCode == 501) {
+      setState(() {
+        predictedCharacter = "Feature coming soon";
+      });
+      print("ℹ️ Feature not implemented yet");
+    } else {
+      setState(() {
+        predictedCharacter = "API error: $statusCode";
+      });
     }
   }
 
@@ -484,10 +593,10 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
           right: 20,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.blue.shade600,
+              color: Colors.blue.shade600.withOpacity(0.5),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: Colors.white,
+                color: Colors.blue.shade600.withOpacity(0.5),
                 width: 3.0,
               ),
               boxShadow: [
