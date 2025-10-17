@@ -35,17 +35,25 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
   Timer? _predictionTimer;
   bool _isCameraReady = false;
   bool _showCategoryModal = false;
-  String _currentCategory = "Alphabets"; // Default category
+  String _currentCategory = "Alphabets";
+
+  // Word recognition session management
+  String _sessionId = "";
+  int _framesCollected = 0;
+  int _framesRequired = 30;
+  bool _sequenceReady = false;
+  Timer? _wordStreamTimer;
+  bool _isProcessingPrediction = false;
 
   final FlutterTts flutterTts = FlutterTts();
 
-  // API endpoints for different categories - UPDATED WITH CORRECT WORD ENDPOINT
+  // API endpoints for different categories
   String get _currentApiEndpoint {
     switch (_currentCategory) {
       case "Numbers":
-        return '$url/gesture/number';
+        return '$url/gesture/numbers';
       case "Words":
-        return '$url/gesture/word'; // CORRECTED: Changed from '/gesture/words' to '/gesture/word'
+        return '$url/gesture/words';
       case "Alphabets":
       default:
         return '$url/gesture/hands';
@@ -57,12 +65,14 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initializeTts();
+    _generateSessionId();
     if (widget.isActive) {
       _initializeCamera();
     }
-    // Print initial API endpoint
-    print("🎯 Initial API Endpoint: $_currentApiEndpoint");
-    print("🎯 Current Category: $_currentCategory");
+  }
+
+  void _generateSessionId() {
+    _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
   }
 
   @override
@@ -70,12 +80,8 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
       _initializeCamera();
-      // Print API when tab becomes active
-      print("🎯 Tab Activated - API Endpoint: $_currentApiEndpoint");
-      print("🎯 Current Category: $_currentCategory");
     } else if (!widget.isActive && oldWidget.isActive) {
       _stopCamera();
-      print("🎯 Tab Deactivated");
     }
   }
 
@@ -85,12 +91,8 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
 
     if (state == AppLifecycleState.inactive) {
       _stopCamera();
-      print("🎯 App Inactive");
     } else if (state == AppLifecycleState.resumed && widget.isActive) {
       _initializeCamera();
-      // Print API when app resumes
-      print("🎯 App Resumed - API Endpoint: $_currentApiEndpoint");
-      print("🎯 Current Category: $_currentCategory");
     }
   }
 
@@ -104,6 +106,13 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
   Future<void> _stopCamera() async {
     _stopPrediction = true;
     _predictionTimer?.cancel();
+    _wordStreamTimer?.cancel();
+
+    // Reset word session when stopping camera
+    if (_currentCategory == "Words") {
+      await _resetWordSession();
+    }
+
     if (_cameraController != null) {
       await _cameraController?.dispose();
     }
@@ -112,6 +121,30 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
         _isCameraReady = false;
       });
     }
+  }
+
+  Future<void> _resetWordSession() async {
+    try {
+      final response = await http.post(
+        Uri.parse('$url/gesture/words/reset'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'session_id': _sessionId}),
+      );
+
+      if (response.statusCode == 200) {
+        print("✅ Word session reset successfully");
+      }
+    } catch (e) {
+      print("❌ Error resetting word session: $e");
+    }
+
+    setState(() {
+      _framesCollected = 0;
+      _sequenceReady = false;
+      _isProcessingPrediction = false;
+      predictedCharacter = "Ready for word recognition";
+      lastSpokenCharacter = "";
+    });
   }
 
   Future<void> _initializeCamera() async {
@@ -158,14 +191,30 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
 
   void _startPredictionTimer() {
     _predictionTimer?.cancel();
-    _predictionTimer = Timer.periodic(Duration(seconds: 2), (timer) async {
-      if (!_stopPrediction && _isMounted && widget.isActive) {
-        await _predictGesture();
-      }
-    });
+    _wordStreamTimer?.cancel();
+
+    if (_currentCategory == "Words") {
+      // For words: continuous streaming every 0.5 seconds
+      _wordStreamTimer =
+          Timer.periodic(Duration(milliseconds: 500), (timer) async {
+        if (!_stopPrediction &&
+            _isMounted &&
+            widget.isActive &&
+            !_isProcessingPrediction) {
+          await _predictWordGesture();
+        }
+      });
+    } else {
+      // For alphabets and numbers: single image every 3 seconds
+      _predictionTimer = Timer.periodic(Duration(seconds: 3), (timer) async {
+        if (!_stopPrediction && _isMounted && widget.isActive) {
+          await _predictStaticGesture();
+        }
+      });
+    }
   }
 
-  Future<void> _predictGesture() async {
+  Future<void> _predictStaticGesture() async {
     if (isPredicting ||
         !_isMounted ||
         !_isCameraReady ||
@@ -180,16 +229,59 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
       XFile? imageFile = await _cameraController!.takePicture();
       Uint8List imageBytes = await imageFile.readAsBytes();
 
-      // Print API endpoint before making request
-      print("🔄 Making API call to: $_currentApiEndpoint");
-      print("📊 Category: $_currentCategory");
+      var request =
+          http.MultipartRequest('POST', Uri.parse(_currentApiEndpoint));
+      request.files.add(http.MultipartFile.fromBytes('file', imageBytes,
+          filename: "gesture.jpg"));
 
-      if (_currentCategory == "Numbers") {
-        await _predictNumber(imageBytes);
-      } else if (_currentCategory == "Words") {
-        await _predictWord(imageBytes); // NEW: Word prediction
+      var response = await request.send();
+
+      if (response.statusCode == 200) {
+        var responseString = await response.stream.bytesToString();
+        var jsonResponse = jsonDecode(responseString);
+
+        String character = "";
+
+        if (_currentCategory == "Numbers") {
+          if (jsonResponse["status"] == "success") {
+            character = jsonResponse["predicted_character"] ?? "";
+          } else {
+            print("❌ Number API error: ${jsonResponse["message"]}");
+            return;
+          }
+        } else if (_currentCategory == "Alphabets") {
+          if (jsonResponse["status"] == "success") {
+            character = jsonResponse["predicted_character"] ?? "";
+          } else {
+            print("❌ Alphabet API error: ${jsonResponse["message"]}");
+            return;
+          }
+        }
+
+        if (character.isNotEmpty &&
+            character != predictedCharacter &&
+            _isMounted) {
+          setState(() => predictedCharacter = character);
+
+          if (character != lastSpokenCharacter) {
+            await flutterTts.stop();
+            await flutterTts.speak(character);
+            lastSpokenCharacter = character;
+          }
+        }
       } else {
-        await _predictAlphabetOrWord(imageBytes);
+        print("❌ API Error: ${response.statusCode}");
+        print("❌ API Endpoint: $_currentApiEndpoint");
+
+        if (response.statusCode == 404) {
+          setState(() {
+            predictedCharacter = "No hand detected";
+          });
+        } else if (response.statusCode == 500) {
+          setState(() {
+            predictedCharacter = "Server error";
+          });
+        }
       }
     } catch (e) {
       print("❌ Prediction error: $e");
@@ -211,178 +303,120 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
     }
   }
 
-  // Number prediction with JSON payload
-  Future<void> _predictNumber(Uint8List imageBytes) async {
-    try {
-      // Convert image to base64 for number API
-      String base64Image = base64Encode(imageBytes);
-
-      var response = await http.post(
-        Uri.parse(_currentApiEndpoint),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'image': base64Image}),
-      );
-
-      if (response.statusCode == 200) {
-        var jsonResponse = jsonDecode(response.body);
-
-        // Handle number API response format
-        if (jsonResponse["success"] == true) {
-          String character = jsonResponse["prediction"] ?? "";
-          double confidence = jsonResponse["confidence"] ?? 0.0;
-
-          print("✅ Number Prediction: $character (confidence: $confidence)");
-
-          if (character != null &&
-              character.isNotEmpty &&
-              character != predictedCharacter &&
-              _isMounted) {
-            setState(() => predictedCharacter = character);
-
-            if (character != lastSpokenCharacter) {
-              await flutterTts.stop();
-              await flutterTts.speak(character);
-              lastSpokenCharacter = character;
-              print("🔊 TTS Speaking: $character");
-            }
-          }
-        } else {
-          String error = jsonResponse["error"] ?? "Unknown error";
-          print("❌ Number API error: $error");
-          setState(() {
-            predictedCharacter = error.contains("No hand")
-                ? "No hand detected"
-                : "Prediction failed";
-          });
-        }
-      } else {
-        print("❌ Number API Error: ${response.statusCode}");
-        _handleApiError(response.statusCode);
-      }
-    } catch (e) {
-      print("❌ Number prediction error: $e");
-      setState(() {
-        predictedCharacter = "Number API error";
-      });
+  Future<void> _predictWordGesture() async {
+    if (isPredicting ||
+        !_isMounted ||
+        !_isCameraReady ||
+        _stopPrediction ||
+        !widget.isActive) {
+      return;
     }
-  }
 
-  // NEW: Word prediction with JSON payload
-  Future<void> _predictWord(Uint8List imageBytes) async {
+    setState(() => isPredicting = true);
+
     try {
-      // Convert image to base64 for word API
-      String base64Image = base64Encode(imageBytes);
+      XFile? imageFile = await _cameraController!.takePicture();
+      Uint8List imageBytes = await imageFile.readAsBytes();
 
-      var response = await http.post(
-        Uri.parse(_currentApiEndpoint),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'image': base64Image}),
-      );
+      var request =
+          http.MultipartRequest('POST', Uri.parse(_currentApiEndpoint));
+      request.fields['session_id'] = _sessionId;
+      request.files.add(http.MultipartFile.fromBytes('file', imageBytes,
+          filename: "gesture.jpg"));
+
+      var response = await request.send();
 
       if (response.statusCode == 200) {
-        var jsonResponse = jsonDecode(response.body);
+        var responseString = await response.stream.bytesToString();
+        var jsonResponse = jsonDecode(responseString);
 
-        // Handle word API response format
-        if (jsonResponse["success"] == true) {
-          String word = jsonResponse["prediction"] ?? "";
-          double confidence = jsonResponse["confidence"] ?? 0.0;
+        if (jsonResponse["status"] == "success") {
+          // Update sequence progress
+          setState(() {
+            _framesCollected = jsonResponse["frames_collected"] ?? 0;
+            _sequenceReady = jsonResponse["sequence_ready"] ?? false;
+          });
 
-          print("✅ Word Prediction: $word (confidence: $confidence)");
+          // Handle predictions if sequence is ready
+          if (_sequenceReady && jsonResponse["predictions"] != null) {
+            var predictions = jsonResponse["predictions"];
+            if (predictions is List && predictions.isNotEmpty) {
+              String topWord = predictions[0]["word"] ?? "";
+              double confidence = predictions[0]["confidence"] ?? 0.0;
 
-          if (word != null &&
-              word.isNotEmpty &&
-              word != predictedCharacter &&
-              _isMounted) {
-            setState(() => predictedCharacter = word);
+              // Only update if confidence is reasonable
+              if (confidence > 0.3 && topWord.isNotEmpty) {
+                setState(() {
+                  predictedCharacter =
+                      "✅ $topWord (${(confidence * 100).toStringAsFixed(1)}%)";
+                });
 
-            if (word != lastSpokenCharacter) {
-              await flutterTts.stop();
-              await flutterTts.speak(word);
-              lastSpokenCharacter = word;
-              print("🔊 TTS Speaking: $word");
+                if (topWord != lastSpokenCharacter) {
+                  await flutterTts.stop();
+                  await flutterTts.speak(topWord);
+                  lastSpokenCharacter = topWord;
+                }
+
+                // ✅ AUTO-RESET: Reset sequence after successful prediction
+                _isProcessingPrediction = true;
+                await Future.delayed(
+                    Duration(milliseconds: 2000)); // Show result for 2 seconds
+                await _resetWordSession();
+                _isProcessingPrediction = false;
+              } else {
+                // Low confidence - reset and try again
+                setState(() {
+                  predictedCharacter = "❌ Low confidence, try again";
+                });
+                await _resetWordSession();
+              }
             }
+          } else {
+            // Show progress while collecting frames
+            String progressText =
+                "Collecting frames: $_framesCollected/$_framesRequired";
+            if (_framesCollected >= _framesRequired) {
+              progressText = "🔄 Processing...";
+            }
+            setState(() {
+              predictedCharacter = progressText;
+            });
           }
         } else {
-          String error = jsonResponse["error"] ?? "Unknown error";
-          print("❌ Word API error: $error");
+          print("❌ Word API error: ${jsonResponse["message"]}");
           setState(() {
-            predictedCharacter = error.contains("No hand")
-                ? "No hand detected"
-                : "Prediction failed";
+            predictedCharacter = "API Error: ${jsonResponse["message"]}";
           });
         }
       } else {
         print("❌ Word API Error: ${response.statusCode}");
-        _handleApiError(response.statusCode);
+
+        if (response.statusCode == 404) {
+          setState(() {
+            predictedCharacter = "👋 No hand detected";
+          });
+        } else if (response.statusCode == 500) {
+          setState(() {
+            predictedCharacter = "🔧 Server error";
+          });
+        } else {
+          setState(() {
+            predictedCharacter = "❌ Connection error ($response.statusCode)";
+          });
+        }
       }
     } catch (e) {
       print("❌ Word prediction error: $e");
-      setState(() {
-        predictedCharacter = "Word API error";
-      });
-    }
-  }
 
-  // Existing method for alphabet/word prediction with multipart form
-  Future<void> _predictAlphabetOrWord(Uint8List imageBytes) async {
-    var request = http.MultipartRequest('POST', Uri.parse(_currentApiEndpoint));
-    request.files.add(http.MultipartFile.fromBytes('file', imageBytes,
-        filename: "gesture.jpg"));
-
-    var response = await request.send();
-
-    if (response.statusCode == 200) {
-      var responseString = await response.stream.bytesToString();
-      var jsonResponse = jsonDecode(responseString);
-
-      // Handle alphabet endpoint response format
-      if (jsonResponse["status"] == "success") {
-        String character = jsonResponse["predicted_character"] ?? "";
-        print("✅ Alphabet Prediction: $character");
-
-        if (character.isNotEmpty &&
-            character != predictedCharacter &&
-            _isMounted) {
-          setState(() => predictedCharacter = character);
-
-          if (character != lastSpokenCharacter) {
-            await flutterTts.stop();
-            await flutterTts.speak(character);
-            lastSpokenCharacter = character;
-            print("🔊 TTS Speaking: $character");
-          }
-        }
-      } else {
-        print("❌ Alphabet API error: ${jsonResponse["message"]}");
-        return;
+      if (_isMounted) {
+        setState(() {
+          predictedCharacter = "🌐 Connection error";
+        });
       }
-    } else {
-      print("❌ API Error: ${response.statusCode}");
-      print("❌ API Endpoint: $_currentApiEndpoint");
-      _handleApiError(response.statusCode);
-    }
-  }
-
-  void _handleApiError(int statusCode) {
-    if (statusCode == 404) {
-      setState(() {
-        predictedCharacter = "No hand detected";
-      });
-      print("❌ No hand detected in image");
-    } else if (statusCode == 500) {
-      setState(() {
-        predictedCharacter = "Server error";
-      });
-      print("❌ Server error occurred");
-    } else if (statusCode == 501) {
-      setState(() {
-        predictedCharacter = "Feature coming soon";
-      });
-      print("ℹ️ Feature not implemented yet");
-    } else {
-      setState(() {
-        predictedCharacter = "API error: $statusCode";
-      });
+    } finally {
+      if (_isMounted) {
+        setState(() => isPredicting = false);
+      }
     }
   }
 
@@ -391,16 +425,12 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
 
     setState(() => _cameraIndex = (_cameraIndex == 0) ? 1 : 0);
     await _initializeCamera();
-    print("📷 Camera flipped to: ${_cameraIndex == 0 ? 'Front' : 'Back'}");
   }
 
   void _showCategorySelectionModal() {
     setState(() {
       _showCategoryModal = true;
     });
-
-    print("📱 Opening category selection modal");
-    print("🎯 Current API before selection: $_currentApiEndpoint");
 
     showModalBottomSheet(
       context: context,
@@ -413,25 +443,48 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
       setState(() {
         _showCategoryModal = false;
       });
-      print("📱 Category modal closed");
     });
   }
 
-  void _selectCategory(String category) {
-    String oldCategory = _currentCategory;
-    String oldApi = _currentApiEndpoint;
+  void _selectCategory(String category) async {
+    // Stop current prediction
+    _stopPrediction = true;
+    _predictionTimer?.cancel();
+    _wordStreamTimer?.cancel();
+
+    // Reset word session if switching from words
+    if (_currentCategory == "Words") {
+      await _resetWordSession();
+    }
+
+    // Generate new session ID for words
+    if (category == "Words") {
+      _generateSessionId();
+    }
 
     setState(() {
       _currentCategory = category;
-      predictedCharacter = ""; // Clear previous prediction
-      lastSpokenCharacter = ""; // Clear last spoken
+      predictedCharacter =
+          category == "Words" ? "Ready for word recognition" : "";
+      lastSpokenCharacter = "";
+      _framesCollected = 0;
+      _sequenceReady = false;
+      _isProcessingPrediction = false;
     });
+
     Navigator.pop(context);
 
-    print("🔄 Category changed:");
-    print("   From: $oldCategory ($oldApi)");
-    print("   To: $_currentCategory ($_currentApiEndpoint)");
-    print("🎯 New API Endpoint: $_currentApiEndpoint");
+    // Restart prediction with new category
+    if (_isMounted && widget.isActive) {
+      _stopPrediction = false;
+      _startPredictionTimer();
+    }
+
+    print("Selected category: $category");
+    print("API Endpoint: $_currentApiEndpoint");
+    if (category == "Words") {
+      print("Session ID: $_sessionId");
+    }
   }
 
   Widget _buildCategoryModal() {
@@ -477,7 +530,7 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
           _buildCategoryItem(
             icon: Icons.numbers,
             title: "Numbers",
-            subtitle: "1, 2, 3, ...",
+            subtitle: "1, 2, 3, ... (Single Image)",
             isSelected: _currentCategory == "Numbers",
             onTap: () => _selectCategory("Numbers"),
           ),
@@ -485,7 +538,7 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
           _buildCategoryItem(
             icon: Icons.abc,
             title: "Alphabets",
-            subtitle: "A, B, C, ...",
+            subtitle: "A, B, C, ... (Single Image)",
             isSelected: _currentCategory == "Alphabets",
             onTap: () => _selectCategory("Alphabets"),
           ),
@@ -493,7 +546,7 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
           _buildCategoryItem(
             icon: Icons.text_fields,
             title: "Words",
-            subtitle: "Complete words",
+            subtitle: "Complete words (Continuous Stream)",
             isSelected: _currentCategory == "Words",
             onTap: () => _selectCategory("Words"),
           ),
@@ -567,19 +620,16 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
     WidgetsBinding.instance.removeObserver(this);
     _stopPrediction = true;
     _predictionTimer?.cancel();
+    _wordStreamTimer?.cancel();
     flutterTts.stop();
     _cameraController?.dispose().then((_) {
       _cameraController = null;
     });
-    print("🎯 GestureVoiceTab disposed");
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Print when widget builds (when you're in the tab)
-    print("🎯 Building GestureVoiceTab - Current API: $_currentApiEndpoint");
-
     return Stack(
       children: [
         if (_isCameraReady && _cameraController != null)
@@ -589,14 +639,14 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
 
         // Category Button - Outside the prediction box
         Positioned(
-          bottom: 120, // Positioned above the prediction box
+          bottom: 120,
           right: 20,
           child: Container(
             decoration: BoxDecoration(
-              color: Colors.blue.shade600.withOpacity(0.5),
+              color: Colors.blue.shade600,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: Colors.blue.shade600.withOpacity(0.5),
+                color: Colors.white,
                 width: 3.0,
               ),
               boxShadow: [
@@ -652,14 +702,34 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text("Predicted Character:",
-                    style: TextStyle(fontSize: 18, color: Colors.white)),
+                if (_currentCategory == "Words")
+                  Text(
+                    "Frames: $_framesCollected/$_framesRequired",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: _sequenceReady
+                          ? Colors.greenAccent
+                          : _framesCollected > 0
+                              ? Colors.yellow
+                              : Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                const SizedBox(height: 4),
+                const Text(
+                  "Predicted Character:",
+                  style: TextStyle(fontSize: 18, color: Colors.white),
+                ),
                 const SizedBox(height: 8),
-                Text(predictedCharacter,
-                    style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.greenAccent)),
+                Text(
+                  predictedCharacter,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.greenAccent,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ],
             ),
           ),
