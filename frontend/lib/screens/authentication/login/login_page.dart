@@ -25,6 +25,21 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
   String? emailError;
   String? passwordError;
+  DateTime? _lastToastTime;
+  static const Duration _toastCooldown =
+      Duration(seconds: 2); // 2 seconds cooldown
+
+  void _showToastWithCooldown(
+      BuildContext context, String message, ToastType type) {
+    final now = DateTime.now();
+
+    // Check if enough time has passed since last toast
+    if (_lastToastTime == null ||
+        now.difference(_lastToastTime!) > _toastCooldown) {
+      _lastToastTime = now;
+      TopToast.show(context, message, type: type);
+    }
+  }
 
   void _navigateBasedOnFirstTimeStatus(BuildContext context) async {
     try {
@@ -54,11 +69,11 @@ class _LoginPageState extends State<LoginPage> {
       }
     } catch (e) {
       print('Error checking first time status: $e');
-      // Show error toast
-      TopToast.show(
+      // Show error toast with cooldown
+      _showToastWithCooldown(
         context,
         'Error checking user status',
-        type: ToastType.error,
+        ToastType.error,
       );
       // If there's an error, proceed to home screen
       Navigator.pushAndRemoveUntil(
@@ -148,11 +163,11 @@ class _LoginPageState extends State<LoginPage> {
                       } else if (state is LoginSuccess) {
                         Navigator.pop(context);
 
-                        // Show success toast
-                        TopToast.show(
+                        // Show success toast with cooldown
+                        _showToastWithCooldown(
                           context,
                           'Login successful!',
-                          type: ToastType.success,
+                          ToastType.success,
                         );
 
                         await TokenService.saveToken(
@@ -182,11 +197,11 @@ class _LoginPageState extends State<LoginPage> {
                           }
                         } catch (e) {
                           print('Error checking first time: $e');
-                          // Show error toast
-                          TopToast.show(
+                          // Show error toast with cooldown
+                          _showToastWithCooldown(
                             context,
                             'Error checking user preferences',
-                            type: ToastType.error,
+                            ToastType.error,
                           );
                           // Fallback: Go to home screen
                           Navigator.pushAndRemoveUntil(
@@ -199,11 +214,11 @@ class _LoginPageState extends State<LoginPage> {
                       } else if (state is LoginFailure) {
                         Navigator.pop(context); // Close loading dialog
 
-                        // Show error toast
-                        TopToast.show(
+                        // Show error toast with cooldown
+                        _showToastWithCooldown(
                           context,
                           state.errorMessage,
-                          type: ToastType.error,
+                          ToastType.error,
                         );
 
                         setState(() {
@@ -315,24 +330,24 @@ class _LoginPageState extends State<LoginPage> {
 
                                   // Validate fields
                                   if (email.isEmpty || password.isEmpty) {
-                                    // Show warning toast for empty fields
+                                    // Show warning toast for empty fields with cooldown
                                     if (email.isEmpty && password.isEmpty) {
-                                      TopToast.show(
+                                      _showToastWithCooldown(
                                         context,
                                         'Please enter email and password',
-                                        type: ToastType.warning,
+                                        ToastType.warning,
                                       );
                                     } else if (email.isEmpty) {
-                                      TopToast.show(
+                                      _showToastWithCooldown(
                                         context,
                                         'Please enter your email',
-                                        type: ToastType.warning,
+                                        ToastType.warning,
                                       );
                                     } else {
-                                      TopToast.show(
+                                      _showToastWithCooldown(
                                         context,
                                         'Please enter your password',
-                                        type: ToastType.warning,
+                                        ToastType.warning,
                                       );
                                     }
 

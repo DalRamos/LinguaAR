@@ -29,6 +29,21 @@ class _SignUpPageState extends State<SignUpPage> {
   bool _obscureConfirmPassword = true;
   bool _isVerified = false;
   bool _isRegistering = false;
+  DateTime? _lastToastTime;
+  static const Duration _toastCooldown =
+      Duration(seconds: 2); // 2 seconds cooldown
+
+  void _showToastWithCooldown(
+      BuildContext context, String message, ToastType type) {
+    final now = DateTime.now();
+
+    // Check if enough time has passed since last toast
+    if (_lastToastTime == null ||
+        now.difference(_lastToastTime!) > _toastCooldown) {
+      _lastToastTime = now;
+      TopToast.show(context, message, type: type);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -60,11 +75,11 @@ class _SignUpPageState extends State<SignUpPage> {
                         setState(() {
                           _isRegistering = false;
                         });
-                        // Show success toast at top
-                        TopToast.show(
+                        // Show success toast at top with cooldown
+                        _showToastWithCooldown(
                           context,
                           'Registration successful!',
-                          type: ToastType.success,
+                          ToastType.success,
                         );
                         // Navigate to login page
                         Navigator.pushAndRemoveUntil(
@@ -85,11 +100,11 @@ class _SignUpPageState extends State<SignUpPage> {
                                 "Email already exists. Please use another email.";
                           });
                         } else {
-                          // Show error toast at top
-                          TopToast.show(
+                          // Show error toast at top with cooldown
+                          _showToastWithCooldown(
                             context,
                             state.errorMessage,
-                            type: ToastType.error,
+                            ToastType.error,
                           );
                         }
                       }
@@ -203,8 +218,8 @@ class _SignUpPageState extends State<SignUpPage> {
                                 ),
                                 child: Row(
                                   children: [
-                                    Icon(Icons.verified, 
-                                         color: Colors.green, size: 20),
+                                    Icon(Icons.verified,
+                                        color: Colors.green, size: 20),
                                     SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
@@ -219,14 +234,16 @@ class _SignUpPageState extends State<SignUpPage> {
                                 ),
                               ),
                             ],
-                            
+
                             SizedBox(height: 30),
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
-                                onPressed: _isRegistering ? null : () {
-                                  _handleSignUp(context);
-                                },
+                                onPressed: _isRegistering
+                                    ? null
+                                    : () {
+                                        _handleSignUp(context);
+                                      },
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor:
                                       Theme.of(context).brightness ==
@@ -242,14 +259,16 @@ class _SignUpPageState extends State<SignUpPage> {
                                     ? CircularProgressIndicator(
                                         color: Colors.white)
                                     : Text(
-                                        _isVerified ? 'Complete Sign Up' : 'Verify Email & Sign Up',
+                                        _isVerified
+                                            ? 'Complete Sign Up'
+                                            : 'Verify Email & Sign Up',
                                         style: TextStyle(
                                             fontSize: 16,
-                                            color: Theme.of(context)
-                                                        .brightness ==
-                                                    Brightness.dark
-                                                ? Color(0xFF273236)
-                                                : Colors.white),
+                                            color:
+                                                Theme.of(context).brightness ==
+                                                        Brightness.dark
+                                                    ? Color(0xFF273236)
+                                                    : Colors.white),
                                       ),
                               ),
                             ),
@@ -303,7 +322,8 @@ class _SignUpPageState extends State<SignUpPage> {
   Widget _buildPasswordRequirements() {
     final password = passwordController.text;
     final requirements = PasswordValidator.getPasswordRequirements(password);
-    final missingRequirements = requirements.where((req) => !req['isMet']).toList();
+    final missingRequirements =
+        requirements.where((req) => !req['isMet']).toList();
 
     if (missingRequirements.isEmpty) return SizedBox();
 
@@ -370,11 +390,21 @@ class _SignUpPageState extends State<SignUpPage> {
       setState(() {
         emailError = 'Please enter your email.';
       });
+      _showToastWithCooldown(
+        context,
+        'Please enter your email.',
+        ToastType.warning,
+      );
       return;
     } else if (!email.contains('@')) {
       setState(() {
         emailError = 'Please enter a valid email address.';
       });
+      _showToastWithCooldown(
+        context,
+        'Please enter a valid email address.',
+        ToastType.warning,
+      );
       return;
     }
 
@@ -383,11 +413,21 @@ class _SignUpPageState extends State<SignUpPage> {
       setState(() {
         passwordError = 'Please enter a new password.';
       });
+      _showToastWithCooldown(
+        context,
+        'Please enter a new password.',
+        ToastType.warning,
+      );
       return;
     } else if (!PasswordValidator.PasswordValid(password)) {
       setState(() {
         passwordError = 'Please fix the password requirements above.';
       });
+      _showToastWithCooldown(
+        context,
+        'Please fix the password requirements above.',
+        ToastType.warning,
+      );
       return;
     }
 
@@ -396,11 +436,21 @@ class _SignUpPageState extends State<SignUpPage> {
       setState(() {
         confirmPasswordError = 'Please confirm your password.';
       });
+      _showToastWithCooldown(
+        context,
+        'Please confirm your password.',
+        ToastType.warning,
+      );
       return;
     } else if (password != confirmPassword) {
       setState(() {
         confirmPasswordError = 'Passwords do not match.';
       });
+      _showToastWithCooldown(
+        context,
+        'Passwords do not match.',
+        ToastType.warning,
+      );
       return;
     }
 
@@ -429,11 +479,11 @@ class _SignUpPageState extends State<SignUpPage> {
           setState(() {
             _isVerified = true;
           });
-          // Show success toast at top
-          TopToast.show(
+          // Show success toast at top with cooldown
+          _showToastWithCooldown(
             context,
             'Email verified successfully!',
-            type: ToastType.success,
+            ToastType.success,
           );
         },
       ),

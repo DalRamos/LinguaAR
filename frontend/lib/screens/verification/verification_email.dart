@@ -22,12 +22,29 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
   late String email;
   final TextEditingController otpController = TextEditingController();
   final TextEditingController _changeEmailController = TextEditingController();
+  DateTime? _lastToastTime;
+  static const Duration _toastCooldown = Duration(seconds: 2);
+
+  // Method to get modal height based on keyboard visibility
+  double getModalHeight(BuildContext context) {
+    final bool isKeyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
+    return isKeyboardVisible ? 0.9 : 0.7;
+  }
+
+  void _showToastWithCooldown(
+      BuildContext context, String message, ToastType type) {
+    final now = DateTime.now();
+    if (_lastToastTime == null ||
+        now.difference(_lastToastTime!) > _toastCooldown) {
+      _lastToastTime = now;
+      TopToast.show(context, message, type: type);
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     email = widget.email;
-    // Send OTP when modal opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<OtpBloc>().add(SendOtpEvent(email: email));
     });
@@ -37,47 +54,106 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: Text('Change Email'),
-          content: TextField(
-            controller: _changeEmailController,
-            keyboardType: TextInputType.emailAddress,
-            decoration: InputDecoration(
-              labelText: 'New Email',
-              border: OutlineInputBorder(),
+        return Dialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.email_outlined,
+                        color: Color(0xFF4A90E2), size: 24),
+                    SizedBox(width: 12),
+                    Text(
+                      'Change Email',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? Colors.white
+                            : Color(0xFF273236),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 20),
+                TextField(
+                  controller: _changeEmailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    labelText: 'New Email Address',
+                    labelStyle: TextStyle(color: Colors.grey[600]),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(color: Colors.grey[400]!),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide:
+                          BorderSide(color: Color(0xFF4A90E2), width: 2),
+                    ),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  ),
+                ),
+                SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.grey[600],
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      ),
+                      child: Text('Cancel'),
+                    ),
+                    SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () {
+                        final newEmail = _changeEmailController.text.trim();
+                        if (newEmail.isNotEmpty && newEmail.contains('@')) {
+                          setState(() {
+                            email = newEmail;
+                          });
+                          context
+                              .read<OtpBloc>()
+                              .add(SendOtpEvent(email: email));
+                          Navigator.pop(context);
+                          _showToastWithCooldown(
+                            context,
+                            'Email updated. OTP sent to $newEmail',
+                            ToastType.success,
+                          );
+                          _changeEmailController.clear();
+                        } else {
+                          _showToastWithCooldown(
+                            context,
+                            'Enter a valid email address',
+                            ToastType.error,
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Color(0xFF4A90E2),
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: Text('Confirm'),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final newEmail = _changeEmailController.text.trim();
-                if (newEmail.isNotEmpty && newEmail.contains('@')) {
-                  setState(() {
-                    email = newEmail;
-                  });
-                  context.read<OtpBloc>().add(SendOtpEvent(email: email));
-                  Navigator.pop(context);
-                  TopToast.show(
-                    context,
-                    'Email updated. OTP sent to $newEmail',
-                    type: ToastType.success,
-                  );
-                  _changeEmailController.clear();
-                } else {
-                  TopToast.show(
-                    context,
-                    'Enter a valid email address',
-                    type: ToastType.error,
-                  );
-                }
-              },
-              child: Text('Confirm'),
-            ),
-          ],
         );
       },
     );
@@ -88,124 +164,291 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
     return BlocListener<OtpBloc, OtpState>(
       listener: (context, state) {
         if (state is OtpSentSuccess) {
-          TopToast.show(
+          _showToastWithCooldown(
             context,
             'OTP sent successfully! Check your email.',
-            type: ToastType.success,
+            ToastType.success,
           );
         } else if (state is OtpSentFailure) {
-          TopToast.show(
+          _showToastWithCooldown(
             context,
             'Failed to send OTP. Try again.',
-            type: ToastType.error,
+            ToastType.error,
           );
         } else if (state is OtpVerifiedSuccess) {
-          // Call the callback to update verification status in SignUpPage
           widget.onVerified();
-          // Close the modal but stay on SignUpPage
           Navigator.of(context).pop();
         } else if (state is OtpVerifiedFailure) {
-          TopToast.show(
+          _showToastWithCooldown(
             context,
             'Invalid OTP. Please try again.',
-            type: ToastType.error,
+            ToastType.error,
           );
         }
       },
-      child: Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Verify Your Email',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+      child: Container(
+        margin: EdgeInsets.only(top: MediaQuery.of(context).size.height * 0.2),
+        child: DraggableScrollableSheet(
+          initialChildSize: getModalHeight(context),
+          minChildSize: 0.5,
+          maxChildSize: 0.9,
+          builder: (context, scrollController) {
+            return Material(
+              color: Colors.transparent,
+              child: Container(
+                decoration: BoxDecoration(
                   color: Theme.of(context).brightness == Brightness.dark
-                      ? Colors.white
-                      : Colors.black,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Enter the OTP sent to $email',
-                style: TextStyle(
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? Colors.white70
-                      : Colors.grey[600],
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: otpController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: 'OTP',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                      ? Color(0xFF1E1E1E)
+                      : Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(32),
+                    topRight: Radius.circular(32),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    vertical: 16,
-                    horizontal: 16,
-                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 20,
+                      offset: Offset(0, -5),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 20),
-              BlocBuilder<OtpBloc, OtpState>(
-                builder: (context, state) {
-                  return SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: state is OtpLoading
-                          ? null
-                          : () {
-                              final otp = otpController.text.trim();
-                              if (otp.isNotEmpty) {
-                                context.read<OtpBloc>().add(
-                                    VerifyOtpEvent(email: email, otp: otp));
-                              } else {
-                                TopToast.show(
-                                  context,
-                                  'Please enter the OTP.',
-                                  type: ToastType.error,
-                                );
-                              }
-                            },
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Drag handle
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[400],
+                            borderRadius: BorderRadius.circular(2),
+                          ),
                         ),
                       ),
-                      child: state is OtpLoading
-                          ? const CircularProgressIndicator(color: Colors.white)
-                          : const Text('Verify OTP'),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  TextButton(
-                    onPressed: () {
-                      context.read<OtpBloc>().add(SendOtpEvent(email: email));
-                    },
-                    child: const Text('Resend OTP'),
+                      SizedBox(height: 24),
+
+                      // Header
+                      Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: Color(0xFF4A90E2).withOpacity(0.1),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.verified_user_outlined,
+                              color: Color(0xFF4A90E2),
+                              size: 24,
+                            ),
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Verify Your Email',
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? Colors.white
+                                        : Color(0xFF273236),
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Enter the 6-digit code sent to',
+                                  style: TextStyle(
+                                    color: Colors.grey[600],
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  email,
+                                  style: TextStyle(
+                                    color: Color(0xFF4A90E2),
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 32),
+
+                      // OTP Input Field
+                      TextField(
+                        controller: otpController,
+                        keyboardType: TextInputType.number,
+                        maxLength: 6,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 4,
+                        ),
+                        textAlign: TextAlign.center,
+                        decoration: InputDecoration(
+                          labelText: 'Enter OTP Code',
+                          labelStyle: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 16,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(color: Colors.grey[400]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide:
+                                BorderSide(color: Color(0xFF4A90E2), width: 2),
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 18),
+                          counterText: '',
+                          hintText: '000000',
+                          hintStyle: TextStyle(
+                            color: Colors.grey[400],
+                            letterSpacing: 4,
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      // Verify Button
+                      BlocBuilder<OtpBloc, OtpState>(
+                        builder: (context, state) {
+                          return SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: state is OtpLoading
+                                  ? null
+                                  : () {
+                                      final otp = otpController.text.trim();
+                                      if (otp.length == 6) {
+                                        context.read<OtpBloc>().add(
+                                            VerifyOtpEvent(
+                                                email: email, otp: otp));
+                                      } else {
+                                        _showToastWithCooldown(
+                                          context,
+                                          'Please enter a valid 6-digit OTP',
+                                          ToastType.error,
+                                        );
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Color(0xFF4A90E2),
+                                foregroundColor: Colors.white,
+                                padding: EdgeInsets.symmetric(vertical: 18),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                elevation: 2,
+                                shadowColor: Color(0xFF4A90E2).withOpacity(0.3),
+                              ),
+                              child: state is OtpLoading
+                                  ? SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.verified_outlined, size: 20),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'Verify OTP',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                            ),
+                          );
+                        },
+                      ),
+                      SizedBox(height: 24),
+
+                      // Action Buttons
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                context
+                                    .read<OtpBloc>()
+                                    .add(SendOtpEvent(email: email));
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Color(0xFF4A90E2),
+                                side: BorderSide(color: Color(0xFF4A90E2)),
+                                padding: EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.refresh_outlined, size: 18),
+                                  SizedBox(width: 6),
+                                  Text('Resend OTP'),
+                                ],
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => _showChangeEmailDialog(context),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.grey[700],
+                                side: BorderSide(color: Colors.grey[400]!),
+                                padding: EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.email_outlined, size: 18),
+                                  SizedBox(width: 6),
+                                  Text('Change Email'),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(
+                          height: MediaQuery.of(context).viewInsets.bottom > 0
+                              ? 16
+                              : 0),
+                    ],
                   ),
-                  TextButton(
-                    onPressed: () => _showChangeEmailDialog(context),
-                    child: const Text('Change Email'),
-                  ),
-                ],
+                ),
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
