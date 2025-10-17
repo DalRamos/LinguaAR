@@ -28,7 +28,7 @@ class _GestureVoiceTabState extends State<GestureVoiceTab>
   String predictedCharacter = "";
   String lastSpokenCharacter = "";
   bool isPredicting = false;
-  String url = BasicUrl.baseURL;
+  String url = Fsl.fslUrl;
   bool _isFlipping = false;
   bool _isMounted = true;
   bool _stopPrediction = false;
