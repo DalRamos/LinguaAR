@@ -68,6 +68,7 @@ dependencies:
   shimmer: ^3.0.0
   web_socket_channel: ^3.0.3
   image: ^4.5.4
+  google_generative_ai: ^0.4.7
 
 
   

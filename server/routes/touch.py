@@ -1,499 +1,508 @@
+# fsl_api.py
 from flask import Blueprint, jsonify, request
-import os
+import os, time, json
 import pickle
 import cv2
-import mediapipe as mp
 import numpy as np
-import json
+import mediapipe as mp
 import tensorflow as tf
 from tensorflow import keras
-import time
 from collections import deque
+from json import JSONDecodeError
 
-# Initialize the Blueprint for gesture routes
+# ──────────────────────────────────────────────────────────────────────────────
+# Blueprint
+# ──────────────────────────────────────────────────────────────────────────────
 touch_routes = Blueprint('touch_routes', __name__)
 
-# Load the gesture recognition model for alphabets
-script_dir = os.path.dirname(os.path.abspath(__file__))
-model_path = os.path.join(script_dir, '..', 'Model', 'model.p')
-model_dict = pickle.load(open(model_path, 'rb'))
-model = model_dict['model']
+# ──────────────────────────────────────────────────────────────────────────────
+# Paths
+# ──────────────────────────────────────────────────────────────────────────────
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR  = os.path.join(SCRIPT_DIR, '..', 'Model')
 
-# Load the number model and labels
-number_model_path = os.path.join(script_dir, '..', 'Model', 'number.keras')
-number_labels_path = os.path.join(script_dir, '..', 'Model', 'number.json')
+# Alphabet (pickle, landmarks)
+ALPHA_PKL = os.path.join(MODEL_DIR, 'model.p')
 
-# Word recognition model and configuration
-word_model_path = os.path.join(script_dir, '..', 'Model', 'word98.h5')
-word_labels_path = os.path.join(script_dir, '..', 'Model', 'actions_order.txt')
+# Number (image CNN) + labels
+NUM_KERAS = os.path.join(MODEL_DIR, 'number.keras')
+NUM_LABEL = os.path.join(MODEL_DIR, 'number.json')  # can be JSON array/dict or newline/CSV text
 
-# Load number model and labels
-number_model = None
-number_labels = []
+# Word (LSTM) + actions + dataset norm
+WORD_H5   = os.path.join(MODEL_DIR, 'word98.h5')
+WORD_ACT  = os.path.join(MODEL_DIR, 'actions_order.txt')
+NORM_MEAN = os.path.join(MODEL_DIR, 'norm_mean.npy')   # produced by your fslcreatemodel pipeline
+NORM_STD  = os.path.join(MODEL_DIR, 'norm_std.npy')
 
-# Word recognition variables
-word_model = None
-word_actions = []
-word_sequence_length = 30
-word_sequences = {}  # Store sequences per session
+# ──────────────────────────────────────────────────────────────────────────────
+# Globals
+# ──────────────────────────────────────────────────────────────────────────────
+alphabet_model = None
+number_model   = None
+number_labels  = []
+word_model     = None
+word_actions   = []
+norm_mean      = None
+norm_std       = None
 
-if os.path.exists(number_model_path):
+# constants / tunables (aligned with your hybrid + fslcreatemodel)
+IMG_SIZE = (64, 64)            # number.keras input
+MIN_HAND_BBOX_PIX = 60         # gate tiny/false hand boxes
+WORD_CONF_THRESH  = 0.60       # server-side confidence threshold
+WORD_SEQ_DEFAULT  = 30
+
+ALPHABET_LABELS = {i: chr(ord('A') + i) for i in range(26)}
+
+# per-session sequences for word streaming
+word_sequences: dict[str, deque] = {}  # session_id -> deque
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Utilities
+# ──────────────────────────────────────────────────────────────────────────────
+def _log(msg: str): print(msg, flush=True)
+
+def _load_number_labels(path: str):
+    """
+    Be liberal in what we accept:
+    - JSON array: ["0","1","2",...]
+    - JSON dict:  {"0":"0","1":"1", ...} or {"labels":[...]} / {"classes":[...]}
+    - Plain text: newline-separated or comma-separated
+    """
+    if not os.path.exists(path):
+        return []
+
     try:
-        number_model = keras.models.load_model(number_model_path)
-        print("✅ Number model loaded successfully")
-    except Exception as e:
-        print(f"❌ Failed to load number model: {e}")
+        with open(path, 'r', encoding='utf-8') as f:
+            txt = f.read().strip()
+        try:
+            data = json.loads(txt)
+            if isinstance(data, list):
+                return [str(x) for x in data]
+            if isinstance(data, dict):
+                if 'labels' in data and isinstance(data['labels'], list):
+                    return [str(x) for x in data['labels']]
+                if 'classes' in data and isinstance(data['classes'], list):
+                    return [str(x) for x in data['classes']]
+                # dict of index->label
+                try:
+                    items = sorted(((int(k), str(v)) for k, v in data.items()), key=lambda kv: kv[0])
+                    return [v for _, v in items]
+                except Exception:
+                    # fall-through to text parsing
+                    pass
+        except JSONDecodeError:
+            # not valid JSON -> try text formats
+            pass
 
-if os.path.exists(number_labels_path):
+        # text parse: lines or CSV
+        if '\n' in txt:
+            lines = [ln.strip() for ln in txt.splitlines() if ln.strip()]
+            # handle "0,1,2" on one line as well
+            if len(lines) == 1 and (',' in lines[0]):
+                return [s.strip() for s in lines[0].split(',') if s.strip()]
+            return lines
+        if ',' in txt:
+            return [s.strip() for s in txt.split(',') if s.strip()]
+        # single token -> still return
+        return [txt] if txt else []
+
+    except Exception as e:
+        _log(f"❌ Number labels load error (robust): {e}")
+        return []
+
+def _get_word_seq_len_and_dim():
+    if word_model is None:
+        return WORD_SEQ_DEFAULT, None
+    ishape = word_model.input_shape  # (None, T, F)
     try:
-        with open(number_labels_path, 'r', encoding='utf-8') as f:
-            number_labels = json.load(f)
-        print(f"✅ Number labels loaded: {number_labels}")
-    except Exception as e:
-        print(f"❌ Failed to load number labels: {e}")
+        T = int(ishape[1]) if isinstance(ishape, (list, tuple)) else WORD_SEQ_DEFAULT
+        F = int(ishape[2]) if isinstance(ishape, (list, tuple)) and len(ishape) > 2 else None
+        return (T if T > 0 else WORD_SEQ_DEFAULT), F
+    except Exception:
+        return WORD_SEQ_DEFAULT, None
 
-# Load word recognition model
-if os.path.exists(word_model_path) and os.path.exists(word_labels_path):
-    try:
-        word_model = tf.keras.models.load_model(word_model_path)
-        with open(word_labels_path, 'r', encoding='utf-8') as f:
-            word_actions = [line.strip() for line in f if line.strip()]
-        print(f"✅ Word model loaded successfully with {len(word_actions)} actions: {word_actions}")
-    except Exception as e:
-        print(f"❌ Failed to load word model: {e}")
-else:
-    print("⚠️  Word model or labels not found, word recognition will be disabled")
+def _get_session_deque(session_id: str, maxlen: int):
+    if session_id not in word_sequences:
+        word_sequences[session_id] = deque(maxlen=maxlen)
+    return word_sequences[session_id]
 
-# Initialize MediaPipe
-mp_hands = mp.solutions.hands
+# dataset-level normalization for word sequences (preserve zeros)
+def _normalize_seq_inplace(seq_np: np.ndarray):
+    global norm_mean, norm_std
+    if norm_mean is None or norm_std is None:
+        return seq_np
+    mean = norm_mean.reshape(1, 1, -1).astype(np.float32)
+    std  = norm_std.reshape(1, 1, -1).astype(np.float32)
+    nz_mask = seq_np != 0
+    seq_np[:] = (seq_np - mean) / std
+    seq_np[~nz_mask] = 0.0
+    return seq_np
+
+# ── MediaPipe setup
+mp_hands    = mp.solutions.hands
 mp_holistic = mp.solutions.holistic
-hands = mp_hands.Hands(static_image_mode=True, min_detection_confidence=0.3)
 
-# Initialize MediaPipe Holistic for word recognition
+hands_detector = mp_hands.Hands(
+    static_image_mode=True,
+    max_num_hands=2,
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5
+)
+
 holistic = mp_holistic.Holistic(
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5
 )
 
-# Labels for alphabet gesture recognition
-labels_dict = {
-    0: 'A', 1: 'B', 2: 'C', 3: 'D', 4: 'E', 5: 'F', 6: 'G', 7: 'H', 8: 'I', 9: 'J',
-    10: 'K', 11: 'L', 12: 'M', 13: 'N', 14: 'O', 15: 'P', 16: 'Q', 17: 'R', 18: 'S',
-    19: 'T', 20: 'U', 21: 'V', 22: 'W', 23: 'X', 24: 'Y', 25: 'Z'
-}
+# ── HYBRID helpers (numbers: largest-hand crop)
+def _detect_largest_hand_roi(frame_bgr: np.ndarray):
+    h, w = frame_bgr.shape[:2]
+    res = hands_detector.process(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+    if not res.multi_hand_landmarks:
+        return None
+    best = None; best_area = -1
+    for lm in res.multi_hand_landmarks:
+        xs = [p.x for p in lm.landmark]; ys = [p.y for p in lm.landmark]
+        x1, y1 = int(min(xs)*w), int(min(ys)*h)
+        x2, y2 = int(max(xs)*w), int(max(ys)*h)
+        bw, bh = x2 - x1, y2 - y1
+        area = max(0, bw) * max(0, bh)
+        if area > best_area:
+            best_area = area
+            best = (x1, y1, x2, y2, bw, bh)
+    if best is None:
+        return None
+    x1, y1, x2, y2, bw, bh = best
+    if bw < MIN_HAND_BBOX_PIX or bh < MIN_HAND_BBOX_PIX:
+        return None
+    cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+    half = int(0.5 * max(bw, bh) * 1.35)  # small margin
+    sx1, sy1 = max(0, cx - half), max(0, cy - half)
+    sx2, sy2 = min(w, cx + half), min(h, cy + half)
+    roi = frame_bgr[sy1:sy2, sx1:sx2]
+    return roi if roi.size else None
 
-# Word recognition helper functions
-def mediapipe_detection(image, model):
-    """MediaPipe detection function for word recognition"""
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    image.flags.writeable = False
-    results = model.process(image)
-    image.flags.writeable = True
-    return cv2.cvtColor(image, cv2.COLOR_RGB2BGR), results
+def _preprocess_number_roi(roi_bgr: np.ndarray):
+    rgb  = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB)
+    resz = cv2.resize(rgb, IMG_SIZE, interpolation=cv2.INTER_AREA)
+    arr  = resz.astype('float32') / 255.0
+    return np.expand_dims(arr, axis=0)
 
-def extract_raw_segments(results, include_face=True):
-    """Extract landmarks from MediaPipe results for word recognition"""
-    # Pose (x,y,z,visibility)
+# ── fslcreatemodel-style feature builder for words (abs + relative)
+def _extract_raw_segments(results, include_face=True):
     pose = (np.array([[lm.x, lm.y, lm.z, lm.visibility]
-                     for lm in results.pose_landmarks.landmark], dtype=np.float32).flatten()
+                      for lm in (results.pose_landmarks.landmark if results.pose_landmarks else [])],
+                     dtype=np.float32).flatten()
             if results.pose_landmarks else np.zeros(33*4, dtype=np.float32))
-    
-    # Face (x,y,z) - optional
     face = (np.array([[lm.x, lm.y, lm.z]
-                     for lm in results.face_landmarks.landmark], dtype=np.float32).flatten()
+                      for lm in (results.face_landmarks.landmark if results.face_landmarks else [])],
+                     dtype=np.float32).flatten()
             if (include_face and results.face_landmarks) else
             (np.zeros(468*3, dtype=np.float32) if include_face else np.zeros(0, dtype=np.float32)))
-    
-    # Hands (x,y,z)
     lh = (np.array([[lm.x, lm.y, lm.z]
-                   for lm in results.left_hand_landmarks.landmark], dtype=np.float32).flatten()
+                    for lm in (results.left_hand_landmarks.landmark if results.left_hand_landmarks else [])],
+                   dtype=np.float32).flatten()
           if results.left_hand_landmarks else np.zeros(21*3, dtype=np.float32))
     rh = (np.array([[lm.x, lm.y, lm.z]
-                   for lm in results.right_hand_landmarks.landmark], dtype=np.float32).flatten()
+                    for lm in (results.right_hand_landmarks.landmark if results.right_hand_landmarks else [])],
+                   dtype=np.float32).flatten()
           if results.right_hand_landmarks else np.zeros(21*3, dtype=np.float32))
-    
     return np.concatenate([pose, face, lh, rh]).astype(np.float32)
 
-def relative_wrist_to_shoulders(results):
-    """Calculate relative wrist positions for word recognition"""
+def _relative_wrist_to_shoulders(results):
     if not results.pose_landmarks:
         return np.zeros(6, dtype=np.float32)
-    
-    ls = results.pose_landmarks.landmark[11]  # left shoulder
-    rs = results.pose_landmarks.landmark[12]  # right shoulder
+    ls = results.pose_landmarks.landmark[11]
+    rs = results.pose_landmarks.landmark[12]
     ls_xyz = np.array([ls.x, ls.y, ls.z], dtype=np.float32)
     rs_xyz = np.array([rs.x, rs.y, rs.z], dtype=np.float32)
-    
-    # Left wrist
     if results.left_hand_landmarks:
         lw = results.left_hand_landmarks.landmark[0]
         lw_xyz = np.array([lw.x, lw.y, lw.z], dtype=np.float32) - ls_xyz
     else:
         lw_xyz = np.zeros(3, dtype=np.float32)
-    
-    # Right wrist
     if results.right_hand_landmarks:
         rw = results.right_hand_landmarks.landmark[0]
         rw_xyz = np.array([rw.x, rw.y, rw.z], dtype=np.float32) - rs_xyz
     else:
         rw_xyz = np.zeros(3, dtype=np.float32)
-    
     return np.concatenate([lw_xyz, rw_xyz]).astype(np.float32)
 
-def get_feature_vector(results):
-    """Get combined feature vector for word recognition"""
-    base = extract_raw_segments(results, include_face=True)
-    rel6 = relative_wrist_to_shoulders(results)
+def _get_feature_vector(results):
+    base = _extract_raw_segments(results, include_face=True)
+    rel6 = _relative_wrist_to_shoulders(results)
     return np.concatenate([base, rel6]).astype(np.float32)
 
-def get_session_sequence(session_id):
-    """Get or create sequence for a session"""
-    if session_id not in word_sequences:
-        word_sequences[session_id] = deque(maxlen=word_sequence_length)
-    return word_sequences[session_id]
+# ──────────────────────────────────────────────────────────────────────────────
+# Load models & labels
+# ──────────────────────────────────────────────────────────────────────────────
+# Alphabet
+if os.path.exists(ALPHA_PKL):
+    try:
+        with open(ALPHA_PKL, 'rb') as f:
+            alpha_dict = pickle.load(f)
+        alphabet_model = alpha_dict['model']
+        _log("✅ Alphabet model (pickle) loaded")
+    except Exception as e:
+        _log(f"❌ Alphabet model load error: {e}")
+else:
+    _log("⚠️ Alphabet model not found")
 
-def clear_session_sequence(session_id):
-    """Clear sequence for a session"""
-    if session_id in word_sequences:
-        word_sequences[session_id].clear()
+# Number
+if os.path.exists(NUM_KERAS):
+    try:
+        number_model = keras.models.load_model(NUM_KERAS)
+        _log("✅ Number model loaded")
+    except Exception as e:
+        _log(f"❌ Number model load error: {e}")
+else:
+    _log("⚠️ Number model not found")
+
+try:
+    number_labels = _load_number_labels(NUM_LABEL)
+    if number_labels:
+        _log(f"✅ Number labels loaded: {len(number_labels)}")
+    else:
+        _log("⚠️ Number labels missing or empty — will fallback to class index")
+except Exception as e:
+    _log(f"❌ Number labels load error: {e}")
+
+# Word
+if os.path.exists(WORD_H5):
+    try:
+        word_model = tf.keras.models.load_model(WORD_H5)
+        _log("✅ Word model loaded")
+    except Exception as e:
+        _log(f"❌ Word model load error: {e}")
+else:
+    _log("⚠️ Word model not found")
+
+if os.path.exists(WORD_ACT):
+    try:
+        with open(WORD_ACT, 'r', encoding='utf-8') as f:
+            word_actions = [ln.strip() for ln in f if ln.strip()]
+        _log(f"✅ Word actions loaded: {len(word_actions)}")
+    except Exception as e:
+        _log(f"❌ Word actions load error: {e}")
+else:
+    _log("⚠️ actions_order.txt missing — labels may mismatch")
+
+if os.path.exists(NORM_MEAN) and os.path.exists(NORM_STD):
+    try:
+        norm_mean = np.load(NORM_MEAN).astype(np.float32)
+        norm_std  = np.load(NORM_STD).astype(np.float32)
+        _log("✅ norm_mean/std loaded")
+    except Exception as e:
+        _log(f"❌ Failed loading norm stats: {e}")
+else:
+    _log("⚠️ norm_mean.npy / norm_std.npy missing — realtime word normalization will be skipped")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Routes
+# ──────────────────────────────────────────────────────────────────────────────
+@touch_routes.route('/static', methods=['POST'])
+def recognize_static():
+    """
+    POST multipart/form-data:
+      - file: image frame (jpeg)
+      - category: 'alphabet' | 'number'  (default: 'alphabet')
+    Returns JSON:
+      {
+        status: "success"|"error",
+        predicted_character?: string,
+        confidence?: float,
+        type?: "alphabet"|"number",
+        message?: string
+      }
+    """
+    if 'file' not in request.files:
+        return jsonify({"status": "error", "message": "No file part"}), 400
+
+    category = (request.form.get('category') or request.args.get('category') or 'alphabet').lower()
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({"status": "error", "message": "No selected file"}), 400
+
+    frame_bytes = np.frombuffer(file.read(), np.uint8)
+    frame = cv2.imdecode(frame_bytes, cv2.IMREAD_COLOR)
+    if frame is None:
+        return jsonify({"status": "error", "message": "Invalid image file"}), 400
+
+    try:
+        # Numbers via CNN-on-image with hand ROI crop (hybrid)
+        if category == 'number':
+            if number_model is None:
+                return jsonify({"status": "error", "message": "Number model not loaded"}), 500
+            roi = _detect_largest_hand_roi(frame)
+            if roi is None:
+                return jsonify({"status": "error", "message": "No hand detected"}), 404
+            x = _preprocess_number_roi(roi)
+            probs = number_model.predict(x, verbose=0)[0]
+            idx   = int(np.argmax(probs))
+            conf  = float(np.max(probs))
+            label = number_labels[idx] if (number_labels and 0 <= idx < len(number_labels)) else str(idx)
+            return jsonify({"status": "success", "predicted_character": label, "confidence": conf, "type": "number"})
+
+        # Alphabet via landmark pickle (classic)
+        if alphabet_model is None:
+            return jsonify({"status": "error", "message": "Alphabet model not loaded"}), 500
+
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        res = hands_detector.process(rgb)
+        if not res.multi_hand_landmarks:
+            return jsonify({"status": "error", "message": "No hand detected"}), 404
+
+        data_aux, xs, ys = [], [], []
+        for hand_lm in res.multi_hand_landmarks:
+            for i in range(len(hand_lm.landmark)):
+                xs.append(hand_lm.landmark[i].x)
+                ys.append(hand_lm.landmark[i].y)
+            for i in range(len(hand_lm.landmark)):
+                x = hand_lm.landmark[i].x; y = hand_lm.landmark[i].y
+                data_aux.extend([x - min(xs), y - min(ys)])
+
+        pred = alphabet_model.predict([np.asarray(data_aux)])
+        char_idx = int(pred[0]) if hasattr(pred, '__len__') else int(pred)
+        char = ALPHABET_LABELS.get(char_idx, '?')
+        return jsonify({"status": "success", "predicted_character": char, "type": "alphabet"})
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @touch_routes.route('/hands', methods=['POST'])
-def recognize_gesture():
-    """Recognize alphabet gestures"""
-    if 'file' not in request.files:
-        return jsonify({"status": "error", "message": "No file part"}), 400
+def recognize_gesture_compat():
+    # alias for alphabet
+    request.form = request.form.copy()
+    request.form['category'] = 'alphabet'
+    return recognize_static()
 
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"status": "error", "message": "No selected file"}), 400
-
-    try:
-        # Read the image file
-        file_bytes = np.frombuffer(file.read(), np.uint8)
-        frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-
-        # Process the frame for gesture recognition
-        data_aux = []
-        x_ = []
-        y_ = []
-
-        H, W, _ = frame.shape
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = hands.process(frame_rgb)
-
-        if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
-                for i in range(len(hand_landmarks.landmark)):
-                    x = hand_landmarks.landmark[i].x
-                    y = hand_landmarks.landmark[i].y
-                    x_.append(x)
-                    y_.append(y)
-
-                for i in range(len(hand_landmarks.landmark)):
-                    x = hand_landmarks.landmark[i].x
-                    y = hand_landmarks.landmark[i].y
-                    data_aux.append(x - min(x_))
-                    data_aux.append(y - min(y_))
-
-            x1 = int(min(x_) * W) - 10
-            y1 = int(min(y_) * H) - 10
-            x2 = int(max(x_) * W) - 10
-            y2 = int(max(y_) * H) - 10
-
-            # Predict the gesture
-            prediction = model.predict([np.asarray(data_aux)])
-            predicted_character = labels_dict[int(prediction[0])]
-
-            return jsonify({
-                "status": "success",
-                "predicted_character": predicted_character,
-                "bounding_box": [x1, y1, x2, y2],
-                "type": "alphabet"
-            })
-        else:
-            return jsonify({"status": "error", "message": "No hand detected"}), 404
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 @touch_routes.route('/numbers', methods=['POST'])
-def recognize_numbers():
-    """Recognize number gestures"""
-    if 'file' not in request.files:
-        return jsonify({"status": "error", "message": "No file part"}), 400
+def recognize_numbers_compat():
+    # alias for number
+    request.form = request.form.copy()
+    request.form['category'] = 'number'
+    return recognize_static()
 
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"status": "error", "message": "No selected file"}), 400
-
-    if number_model is None:
-        return jsonify({"status": "error", "message": "Number model not loaded"}), 500
-
-    try:
-        # Read and preprocess the image
-        file_bytes = np.frombuffer(file.read(), np.uint8)
-        frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        
-        if frame is None:
-            return jsonify({"status": "error", "message": "Invalid image file"}), 400
-
-        # Use MediaPipe Hands for hand detection and cropping
-        hand_detected, cropped_hand = detect_and_crop_hand(frame)
-        
-        if not hand_detected:
-            return jsonify({"status": "error", "message": "No hand detected"}), 404
-
-        # Preprocess the cropped hand image for the number model
-        processed_image = preprocess_for_number_model(cropped_hand)
-        
-        # Make prediction
-        predictions = number_model.predict(processed_image, verbose=0)
-        predicted_class = np.argmax(predictions[0])
-        confidence = float(np.max(predictions[0]))
-        
-        # Get the predicted number
-        if number_labels and predicted_class < len(number_labels):
-            predicted_number = number_labels[predicted_class]
-        else:
-            predicted_number = str(predicted_class)
-
-        return jsonify({
-            "status": "success",
-            "predicted_character": predicted_number,
-            "confidence": confidence,
-            "type": "number",
-            "message": "Number recognized successfully"
-        })
-
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 @touch_routes.route('/words', methods=['POST'])
 def recognize_words():
-    """Recognize word gestures using sequence-based model"""
+    """
+    Stream frames for word (sequence) recognition.
+    Request form-data:
+      - file: frame (jpeg)
+      - session_id: string
+    Response:
+      {
+        status: "success"|"error",
+        type: "word",
+        ready: bool,
+        detections: {pose,bool,left_hand,bool,right_hand,bool,face,bool},
+        top_prediction?: { word, confidence, index }
+      }
+    """
     if 'file' not in request.files:
-        return jsonify({"status": "error", "message": "No file part"}), 400
+        return jsonify({"status":"error","message":"No file part"}), 400
+    if word_model is None:
+        return jsonify({"status":"error","message":"Word model not loaded"}), 500
+
+    T, F_expected = _get_word_seq_len_and_dim()
+    session_id = request.form.get('session_id', 'default')
 
     file = request.files['file']
-    if file.filename == '':
-        return jsonify({"status": "error", "message": "No selected file"}), 400
+    if not file.filename:
+        return jsonify({"status":"error","message":"No selected file"}), 400
 
-    if word_model is None:
-        return jsonify({"status": "error", "message": "Word model not loaded"}), 500
+    frame_bytes = np.frombuffer(file.read(), np.uint8)
+    frame = cv2.imdecode(frame_bytes, cv2.IMREAD_COLOR)
+    if frame is None:
+        return jsonify({"status":"error","message":"Invalid image file"}), 400
 
     try:
-        # Get session ID from request or generate one
-        session_id = request.form.get('session_id', 'default')
-        reset_sequence = request.form.get('reset', 'false').lower() == 'true'
+        img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img.flags.writeable = False
+        results = holistic.process(img)
+        img.flags.writeable = True
 
-        # Reset sequence if requested
-        if reset_sequence:
-            clear_session_sequence(session_id)
-            return jsonify({
-                "status": "success",
-                "message": "Sequence reset",
-                "session_id": session_id
-            })
+        feats = _get_feature_vector(results)
 
-        # Read the image file
-        file_bytes = np.frombuffer(file.read(), np.uint8)
-        frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        
-        if frame is None:
-            return jsonify({"status": "error", "message": "Invalid image file"}), 400
+        # pad/truncate to match model's feature dim
+        if F_expected is not None and feats.shape[0] != F_expected:
+            if feats.shape[0] < F_expected:
+                tmp = np.zeros(F_expected, dtype=np.float32)
+                tmp[:feats.shape[0]] = feats
+                feats = tmp
+            else:
+                feats = feats[:F_expected]
 
-        # Process frame with MediaPipe Holistic
-        image, results = mediapipe_detection(frame, holistic)
-        
-        # Extract features
-        features = get_feature_vector(results)
-        
-        # Get session sequence
-        sequence = get_session_sequence(session_id)
-        sequence.append(features)
-        
-        # Check if we have enough frames for prediction
-        frames_collected = len(sequence)
-        
-        response_data = {
+        seq = _get_session_deque(session_id, maxlen=T)
+        seq.append(feats)
+        ready = (len(seq) >= T)
+
+        resp = {
             "status": "success",
-            "session_id": session_id,
-            "frames_collected": frames_collected,
-            "frames_required": word_sequence_length,
-            "sequence_ready": frames_collected >= word_sequence_length,
-            "type": "word"
-        }
-
-        # Make prediction if we have enough frames
-        if frames_collected >= word_sequence_length:
-            # Prepare sequence for prediction
-            seq_array = np.array([list(sequence)], dtype=np.float32)
-            
-            # Make prediction
-            predictions = word_model.predict(seq_array, verbose=0)[0]
-            
-            # Get top predictions
-            top_indices = np.argsort(predictions)[::-1][:5]
-            top_predictions = [
-                {
-                    "word": word_actions[i],
-                    "confidence": float(predictions[i]),
-                    "index": int(i)
-                }
-                for i in top_indices if predictions[i] > 0.01  # Only include predictions above 1%
-            ]
-            
-            # Add detection status
-            detections = {
+            "type": "word",
+            "ready": ready,
+            "detections": {
                 "pose": results.pose_landmarks is not None,
                 "left_hand": results.left_hand_landmarks is not None,
                 "right_hand": results.right_hand_landmarks is not None,
                 "face": results.face_landmarks is not None
             }
-            
-            response_data.update({
-                "predictions": top_predictions,
-                "detections": detections,
-                "top_prediction": top_predictions[0] if top_predictions else None
-            })
+        }
 
-        return jsonify(response_data)
+        if ready:
+            arr = np.array([list(seq)], dtype=np.float32)  # (1, T, F)
+            _normalize_seq_inplace(arr)
+            probs = word_model.predict(arr, verbose=0)[0]
+            idx   = int(np.argmax(probs))
+            conf  = float(np.max(probs))
+            if conf >= WORD_CONF_THRESH and word_actions and 0 <= idx < len(word_actions):
+                resp["top_prediction"] = {"word": word_actions[idx], "confidence": conf, "index": idx}
+
+        return jsonify(resp)
 
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status":"error","message":str(e)}), 500
+
 
 @touch_routes.route('/words/reset', methods=['POST'])
 def reset_word_sequence():
-    """Reset word recognition sequence for a session"""
     session_id = request.json.get('session_id', 'default') if request.is_json else 'default'
-    clear_session_sequence(session_id)
-    
-    return jsonify({
-        "status": "success",
-        "message": "Word sequence reset",
-        "session_id": session_id
-    })
+    if session_id in word_sequences:
+        word_sequences[session_id].clear()
+    return jsonify({"status":"success","message":"Word sequence reset","session_id":session_id})
+
 
 @touch_routes.route('/words/actions', methods=['GET'])
 def get_word_actions():
-    """Get list of available words for recognition"""
-    return jsonify({
-        "status": "success",
-        "actions": word_actions,
-        "count": len(word_actions)
-    })
+    return jsonify({"status":"success","actions":word_actions,"count":len(word_actions)})
+
 
 @touch_routes.route('/words/status', methods=['GET'])
 def get_word_status():
-    """Get word recognition status for a session"""
     session_id = request.args.get('session_id', 'default')
-    sequence = get_session_sequence(session_id)
-    
-    return jsonify({
-        "status": "success",
-        "session_id": session_id,
-        "frames_collected": len(sequence),
-        "frames_required": word_sequence_length,
-        "ready_for_prediction": len(sequence) >= word_sequence_length
-    })
+    seq = word_sequences.get(session_id, deque())
+    return jsonify({"status":"success","session_id":session_id,"length":len(seq)})
 
-@touch_routes.route('/gesture/health', methods=['GET'])
+
+@touch_routes.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint for all gesture recognition models"""
     return jsonify({
         "status": "healthy",
         "models": {
-            "alphabet": True,
+            "alphabet": alphabet_model is not None,
             "number": number_model is not None,
             "word": word_model is not None
         },
         "word_actions_count": len(word_actions),
         "number_labels_count": len(number_labels),
+        "word_seq_len": _get_word_seq_len_and_dim()[0],
         "timestamp": time.time()
     })
 
-def detect_and_crop_hand(frame, min_detection_confidence=0.5):
-    """Detect hand using MediaPipe and crop the hand region with margin"""
-    try:
-        import mediapipe as mp
-    except ImportError:
-        return False, None
-
-    # Tunables
-    MARGIN_FRAC = 0.35  # extra margin around the hand bbox
-    MIN_PIX = 80        # minimum bbox size in pixels
-    
-    mp_hands = mp.solutions.hands
-    hands = mp_hands.Hands(
-        static_image_mode=True,
-        max_num_hands=2,
-        min_detection_confidence=min_detection_confidence,
-        min_tracking_confidence=0.5
-    )
-
-    h, w = frame.shape[:2]
-    
-    # Process the frame
-    results = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    hands.close()  # Close the hands processor immediately after use
-    
-    if not results.multi_hand_landmarks:
-        return False, None
-
-    # Choose the largest hand bbox
-    best_box = None
-    best_area = -1
-    for hand_lms in results.multi_hand_landmarks:
-        xs = [lm.x for lm in hand_lms.landmark]
-        ys = [lm.y for lm in hand_lms.landmark]
-        x1 = int(min(xs) * w); y1 = int(min(ys) * h)
-        x2 = int(max(xs) * w); y2 = int(max(ys) * h)
-        bw = max(1, x2 - x1); bh = max(1, y2 - y1)
-        area = bw * bh
-        if area > best_area:
-            best_area = area
-            best_box = (x1, y1, x2, y2)
-
-    if best_box is None:
-        return False, None
-
-    x1, y1, x2, y2 = best_box
-    bw = x2 - x1; bh = y2 - y1
-    
-    # Check minimum size
-    if bw < MIN_PIX or bh < MIN_PIX:
-        return False, None
-
-    # Make square crop with margin
-    cx = (x1 + x2) // 2
-    cy = (y1 + y2) // 2
-    half = int(0.5 * max(bw, bh) * (1 + MARGIN_FRAC))
-    sx1 = max(0, cx - half); sy1 = max(0, cy - half)
-    sx2 = min(w, cx + half); sy2 = min(h, cy + half)
-
-    # Extract ROI
-    roi = frame[sy1:sy2, sx1:sx2]
-    if roi.size == 0:
-        return False, None
-
-    return True, roi
-
-def preprocess_for_number_model(image, img_size=(64, 64)):
-    """Preprocess the cropped hand image for the number model"""
-    # Convert BGR to RGB
-    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    
-    # Resize to match model input size
-    image_resized = cv2.resize(image_rgb, img_size, interpolation=cv2.INTER_AREA)
-    
-    # Normalize pixel values
-    image_normalized = image_resized.astype("float32") / 255.0
-    
-    # Add batch dimension
-    image_batch = np.expand_dims(image_normalized, axis=0)
-    
-    return image_batch
 
 def create_touch_routes(app):
-    """Register the touch routes with the Flask app"""
+    # NOTE: url_prefix is '/gesture' so health becomes '/gesture/health'
     app.register_blueprint(touch_routes, url_prefix='/gesture')

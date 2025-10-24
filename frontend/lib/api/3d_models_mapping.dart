@@ -152,8 +152,6 @@ final Map<String, String> letterModels = {
   'TULUNGAN MO SILA': 'https://drive.google.com/uc?export=download&id=1FRMRCpYU1ywbkVjMKjpLSoB0OFdKvAmw',
   'ULAN': 'https://drive.google.com/uc?export=download&id=1ovdYx3NwL2Q7rdgKRNBgAzzyKeH2u577',
 
-
-
   //COLOR AND SHAPES
   'ASUL': 'https://drive.google.com/uc?export=download&id=1X53Nl5qOqD1RZSqx6RNe91gv7aX9HGts',
   'BILOG': 'https://drive.google.com/uc?export=download&id=1cYBavqoLJEvWBnp9i9HXcfnNHkArNyy-',
@@ -186,12 +184,17 @@ final Map<String, String> letterModels = {
   'AFTERNOON': 'https://drive.google.com/uc?export=download&id=1vOPGqkiEu1w99okqRFBOulI6RWvydJoS',
   'MORNING': 'https://drive.google.com/uc?export=download&id=1YUChj8qUFjGV53HPQhrGHE-TSavUZMyQ',
   'NIGHT': 'https://drive.google.com/uc?export=download&id=1KpfQrm0BGoII3rQBVo2myORiZMZnRTOS',
+  'HELLO':'https://drive.google.com/uc?export=download&id=1LlZSq4dm9jLRbA6W5b8mbpXdPzz7rbhf'
 
 
 
 
 };
 
+String? getModelURL(String input) {
+  final upper = input.toUpperCase();
+  return letterModels[upper];
+}
 // Helper function to find matching models for input text
 List<String> findMatchingModels(String input) {
   final normalizedInput = input.toUpperCase().trim();

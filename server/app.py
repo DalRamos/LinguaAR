@@ -22,11 +22,15 @@ def create_app():
     from routes.videos_routes import create_cloudinary_routes
     from routes.otp import create_otp_routes
     from routes.favotites import create_favorites_routes  # file should be favorites.py
+    from routes.gesture_routes import create_gesture_routes
+    from routes.touch import create_touch_routes
 
     create_auth_routes(app)
     create_cloudinary_routes(app)
     create_otp_routes(app)
     create_favorites_routes(app)
+    create_gesture_routes(app)
+    create_touch_routes(app)
 
     # ---- Conditionally register heavy routes ----
     if ENABLE_GESTURE:
